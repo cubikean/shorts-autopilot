@@ -11,13 +11,7 @@ def _env(name: str, default: str) -> str:
     return default if not value or value.startswith("#") else value
 
 
-MUAPI_API_KEY = os.getenv("MUAPI_API_KEY", "").strip()
-MUAPI_BASE_URL = os.getenv("MUAPI_BASE_URL", "https://api.muapi.ai/api/v1").rstrip("/")
-
-POLL_INTERVAL_SECONDS = float(os.getenv("MUAPI_POLL_INTERVAL", "5"))
-POLL_TIMEOUT_SECONDS = float(os.getenv("MUAPI_POLL_TIMEOUT", "600"))
-
-# Local-mode (--mode local) settings — only consulted when running offline.
+# LLM providers (LLM_PROVIDER picks one) and Whisper settings.
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -55,7 +49,7 @@ LOCAL_WHISPER_MODELS = {
 LOCAL_WHISPER_DEVICE = _env("LOCAL_WHISPER_DEVICE", "auto")  # auto (GPU if usable) / cpu / cuda
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
 
-# Burned-in word-by-word captions (--mode local). Position is the caption's
+# Burned-in word-by-word captions. Position is the caption's
 # vertical centre as a fraction of the frame height (0 = top, 1 = bottom).
 SUBTITLE_FONT = os.getenv("SUBTITLE_FONT", "Arial Black")
 SUBTITLE_POSITION = float(os.getenv("SUBTITLE_POSITION", "0.70"))
@@ -109,19 +103,11 @@ else:
     }
 
 
-def require_api_key() -> str:
-    if not MUAPI_API_KEY:
-        raise RuntimeError(
-            "MUAPI_API_KEY is not set. Add it to your .env file or export it as an env var."
-        )
-    return MUAPI_API_KEY
-
-
 def require_openai_key() -> str:
     if not OPENAI_API_KEY:
         raise RuntimeError(
-            "OPENAI_API_KEY is not set. Local mode needs an OpenAI key for highlight ranking. "
-            "Add it to your .env or export it, or switch back to --mode api."
+            "OPENAI_API_KEY is not set. LLM_PROVIDER=openai needs an OpenAI key for highlight ranking. "
+            "Add it to your .env, or switch LLM_PROVIDER to claude or gemini."
         )
     return OPENAI_API_KEY
 

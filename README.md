@@ -26,7 +26,7 @@ Prérequis :
 ```powershell
 python -m venv venv
 .\venv\Scripts\activate
-pip install -r requirements-local.txt
+pip install -r requirements.txt
 copy .env.example .env
 ```
 
@@ -105,13 +105,11 @@ Pour tester un upload sans le rendre public :
 ### Une vidéo précise, hors pipeline
 
 ```powershell
-python main.py "https://www.youtube.com/watch?v=VIDEO_ID" --mode local --num-clips 3
-python main.py "D:\Videos\stream.mp4" --mode local --layout stack
+python main.py "https://www.youtube.com/watch?v=VIDEO_ID" --num-clips 3
+python main.py "D:\Videos\stream.mp4" --layout stack
 ```
 
-Toujours passer `--mode local` : le mode par défaut (`api`, MuAPI) vient du
-projet d'origine et n'est pas utilisé ici. Les clips arrivent dans
-`output\<id>\short_01.mp4` avec un `short_01.json` (titre, description, hashtags).
+Les clips arrivent dans `output\<id>\short_01.mp4` avec un `short_01.json` (titre, description, hashtags).
 
 | Option | Défaut | Rôle |
 |---|---|---|
@@ -197,9 +195,6 @@ shorts_generator/
 ├── feed/                    découverte YouTube / Twitch, client Notion, runner discover/process
 └── publish/                 base (Publisher), youtube, runner publish
 ```
-
-Les fichiers à la racine de `shorts_generator/` (`muapi.py`, `downloader.py`,
-`transcriber.py`, `clipper.py`) ne servent qu'au mode `api` hérité.
 
 ### Ajouter une plateforme
 

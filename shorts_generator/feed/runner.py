@@ -75,7 +75,6 @@ def process(limit: int = FEED_MAX_PER_RUN) -> None:
             result = generate_shorts(
                 source,
                 num_clips=num_clips,
-                mode="local",
                 out_dir=os.path.join(LOCAL_OUTPUT_DIR, "shorts", safe_key),
             )
             rendered = [s for s in result["shorts"] if s.get("clip_url")]

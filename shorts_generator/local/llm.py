@@ -20,13 +20,13 @@ from ..config import (
 
 
 def call_openai_llm(prompt: str) -> str:
-    """OpenAI Chat Completions backend used by --mode local."""
+    """OpenAI Chat Completions backend (LLM_PROVIDER=openai)."""
     try:
         from openai import OpenAI  # type: ignore
     except ImportError as e:
         raise RuntimeError(
-            "openai is required for --mode local. Install it with:\n"
-            "    pip install -r requirements-local.txt"
+            "openai is required. Install it with:\n"
+            "    pip install -r requirements.txt"
         ) from e
 
     client = OpenAI(api_key=require_openai_key())
@@ -39,13 +39,13 @@ def call_openai_llm(prompt: str) -> str:
 
 
 def call_gemini_llm(prompt: str) -> str:
-    """Gemini backend used by --mode local when LLM_PROVIDER=gemini."""
+    """Gemini backend (LLM_PROVIDER=gemini)."""
     try:
         from google import genai  # type: ignore
     except ImportError as e:
         raise RuntimeError(
             "google-genai is required for LLM_PROVIDER=gemini. Install it with:\n"
-            "    pip install -r requirements-local.txt"
+            "    pip install -r requirements.txt"
         ) from e
 
     client = genai.Client(api_key=require_gemini_key())

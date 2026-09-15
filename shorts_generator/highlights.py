@@ -10,15 +10,12 @@ itself), integer-second timestamps in the transcript, and a bounded number of
 short candidates. Returned times are snapped to Whisper segment boundaries, so
 the coarse timestamps never cut mid-sentence.
 
-The LLM call is pluggable via the `llm_fn` argument so the same prompts can
-drive either MuAPI (default, --mode api) or a direct local LLM client
-(--mode local).
+The LLM call is pluggable via the `llm_fn` argument (default: the provider
+selected by LLM_PROVIDER).
 """
 import json
 import re
 from typing import Callable, Dict, List, Optional
-
-from . import muapi
 
 
 LLMFn = Callable[[str], str]
@@ -69,39 +66,17 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 CHUNK_SIZE_SECONDS = 1200       # 20-min chunks for long videos
 LONG_VIDEO_THRESHOLD = 1800     # chunk videos longer than 30 min
 CHUNK_OVERLAP_SECONDS = 60
-GPT_CALL_TIMEOUT_SECONDS = 300  # cap LLM polls at 5 min — a wedged call should fail fast
 MAX_HIGHLIGHT_API_ATTEMPTS = 3
 
 
-def call_muapi_llm(prompt: str) -> str:
-    """Default LLM backend: MuAPI gpt-5-mini."""
-    result = muapi.run(
-        "gpt-5-mini",
-        {"prompt": prompt},
-        label="gpt-5-mini",
-        timeout=GPT_CALL_TIMEOUT_SECONDS,
-    )
+def _default_llm(prompt: str) -> str:
+    from .local.llm import call_local_llm  # lazy: local.llm imports this module
 
-    outputs = result.get("outputs")
-    if isinstance(outputs, list) and outputs and isinstance(outputs[0], str) and outputs[0].strip():
-        return outputs[0]
-
-    for key in ("output", "text", "response", "result", "content"):
-        v = result.get(key)
-        if isinstance(v, str) and v.strip():
-            return v
-        if isinstance(v, dict):
-            inner = v.get("text") or v.get("content")
-            if isinstance(inner, str) and inner.strip():
-                return inner
-        if isinstance(v, list) and v and isinstance(v[0], str):
-            return v[0]
-
-    raise RuntimeError(f"Could not extract gpt-5-mini text from response: {result}")
+    return call_local_llm(prompt)
 
 
 def _parse_json_loose(raw: str) -> Dict:
-    """gpt-5-4 sometimes wraps JSON in markdown fences — strip and parse."""
+    """LLMs sometimes wrap JSON in markdown fences — strip and parse."""
     text = raw.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
@@ -229,7 +204,7 @@ def call_highlight_api(
     transcript: Dict,
     num_clips: int,
     is_chunk: bool = False,
-    llm_fn: LLMFn = call_muapi_llm,
+    llm_fn: LLMFn = _default_llm,
 ) -> Dict:
     duration = float(transcript.get("duration", 0))
     offset = float(transcript.get("_offset", 0))
@@ -305,10 +280,9 @@ def get_highlights(
 ) -> Dict:
     """Main entry point — returns {highlights: [...]} sorted by score.
 
-    `llm_fn` swaps the underlying LLM. Defaults to MuAPI gpt-5-mini; local
-    mode passes in a local LLM-backed callable.
+    `llm_fn` swaps the underlying LLM. Defaults to the LLM_PROVIDER backend.
     """
-    llm_fn = llm_fn or call_muapi_llm
+    llm_fn = llm_fn or _default_llm
     duration = transcript.get("duration", 0)
     print(f"[highlights] duration={duration:.0f}s", flush=True)
 

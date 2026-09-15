@@ -157,8 +157,8 @@ def transcribe_local(media_path: str, language: Optional[str] = None) -> Dict:
         from faster_whisper import decode_audio  # type: ignore
     except ImportError as e:
         raise RuntimeError(
-            "faster-whisper is required for --mode local. Install it with:\n"
-            "    pip install -r requirements-local.txt"
+            "faster-whisper is required. Install it with:\n"
+            "    pip install -r requirements.txt"
         ) from e
 
     from ..config import LOCAL_WHISPER_VAD_FILTER, LOCAL_WHISPER_VAD_PARAMETERS
