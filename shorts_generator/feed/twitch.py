@@ -5,8 +5,8 @@ the VOD. Nearby clips are merged into one "moment", and only a window around
 it gets downloaded later — no need to transcribe a 6-hour stream.
 
 Score = the moment's clip views divided by the median of that channel's
-moments today (1.0 when there is a single moment). Moments from VODs outside
-FEED_MIN/MAX_DURATION_MINUTES, or whose VOD is gone, are skipped.
+moments today (1.0 when there is a single moment). Moments whose VOD is gone
+are skipped; the VOD's length doesn't matter since only a window is downloaded.
 """
 import re
 import statistics
@@ -16,8 +16,6 @@ from typing import Dict, List, Optional
 import requests
 
 from ..config import (
-    FEED_MAX_DURATION_MINUTES,
-    FEED_MIN_DURATION_MINUTES,
     FEED_TWITCH_MIN_VIEWS,
     FEED_TWITCH_MOMENTS_PER_CHANNEL,
     TWITCH_CLIENT_ID,
@@ -117,15 +115,8 @@ def discover_twitch(sources: List[Dict], now: Optional[datetime] = None) -> List
         vod_minutes = _vod_minutes(token, [m["vod_id"] for m in moments]) if moments else {}
         kept = []
         for m in moments:
-            length = vod_minutes.get(m["vod_id"])
-            if length is None:
+            if m["vod_id"] not in vod_minutes:
                 print(f"[feed/twitch]   skip {m['title'][:60]!r}: VOD {m['vod_id']} unavailable", flush=True)
-            elif not FEED_MIN_DURATION_MINUTES <= length <= FEED_MAX_DURATION_MINUTES:
-                print(
-                    f"[feed/twitch]   skip {m['title'][:60]!r}: VOD {length:.0f} min outside "
-                    f"{FEED_MIN_DURATION_MINUTES:g}-{FEED_MAX_DURATION_MINUTES:g} min",
-                    flush=True,
-                )
             else:
                 kept.append(m)
         moments = kept

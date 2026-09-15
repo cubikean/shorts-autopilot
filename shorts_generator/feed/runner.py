@@ -59,6 +59,10 @@ def process(limit: int = FEED_MAX_PER_RUN) -> None:
     notion = Notion(NOTION_TOKEN)
     videos_db = _require_db(NOTION_VIDEOS_DB, "NOTION_VIDEOS_DB")
     shorts_db = _require_db(NOTION_SHORTS_DB, "NOTION_SHORTS_DB")
+    # The scheduled task never overlaps itself, so anything still "En cours" is from a run that died.
+    requeued = notion.requeue_running(videos_db)
+    if requeued:
+        print(f"[feed] {requeued} video(s) left \"En cours\" by an interrupted run put back in the queue")
     rows = notion.todo(videos_db, limit)
     print(f"[feed] {len(rows)} video(s) to process")
 

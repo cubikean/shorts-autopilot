@@ -5,7 +5,7 @@ de chaînes YouTube / Twitch, en extrait les meilleurs moments en 9:16 sous-titr
 les range dans Notion pour validation, puis publie sur YouTube ceux que tu valides.
 
 ```
-07h00  discover  → Notion « Vidéos à traiter »   (vidéos virales repérées)
+00h00  discover  → Notion « Vidéos à traiter »   (vidéos virales repérées)
 01h00  process   → Notion « Shorts » À publier   (mp4 + titre, description, hashtags)
  toi             → Publication = Validé
 /4 h   publish   → YouTube                        (lien écrit dans Notion, statut Publié)
@@ -80,8 +80,8 @@ powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1
 
 | Tâche | Quand | Rôle |
 |---|---|---|
-| `ShortsFeed-Process` | 01h00 | génère les shorts des vidéos en file |
-| `ShortsFeed-Discover` | 07h00 | cherche les nouvelles vidéos virales |
+| `ShortsFeed-Discover` | 00h00 | cherche les nouvelles vidéos virales |
+| `ShortsFeed-Process` | 01h00 | génère les shorts des vidéos trouvées juste avant |
 | `ShortsFeed-Publish` | 09h, 13h, 17h, 21h, 01h, 05h | publie les shorts validés (`PUBLISH_MAX_PER_RUN` par passage) |
 
 Les horaires se changent en paramètres du script (`-DiscoverAt`, `-ProcessAt`,
@@ -117,7 +117,7 @@ Les clips arrivent dans `output\<id>\short_01.mp4` avec un `short_01.json` (titr
 | `--layout` | `auto` | `auto` : webcam de stream détectée placée au-dessus du jeu ; `single` : cadrage sur le visage ; `stack` : force la webcam en haut |
 | `--no-subtitles` | — | désactive les sous-titres incrustés |
 | `--language` | auto | force la langue de Whisper (`fr`, `en`…) |
-| `--format` | `720` | résolution téléchargée : `360` / `480` / `720` / `1080` |
+| `--format` | `1080` | résolution téléchargée : `360` / `480` / `720` / `1080` |
 | `--aspect-ratio` | `9:16` | ratio de sortie |
 | `--output-json` | — | écrit le résultat complet (transcription + tous les candidats) |
 

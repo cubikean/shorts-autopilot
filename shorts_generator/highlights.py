@@ -66,6 +66,7 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 CHUNK_SIZE_SECONDS = 1200       # 20-min chunks for long videos
 LONG_VIDEO_THRESHOLD = 1800     # chunk videos longer than 30 min
 CHUNK_OVERLAP_SECONDS = 60
+MIN_TAIL_SECONDS = 300          # a remainder shorter than this joins the previous chunk
 MAX_HIGHLIGHT_API_ATTEMPTS = 3
 
 
@@ -186,6 +187,9 @@ def chunk_transcript(transcript: Dict) -> List[Dict]:
     start = 0
     while start < duration:
         end = min(start + CHUNK_SIZE_SECONDS, duration)
+        if duration - end < MIN_TAIL_SECONDS:
+            # Absorb a short tail: a 13 s last chunk has nothing to clip and only costs a call.
+            end = duration
         chunk_segs = [
             s for s in segments
             if s["start"] >= start and s["end"] <= end + CHUNK_OVERLAP_SECONDS
@@ -196,6 +200,8 @@ def chunk_transcript(transcript: Dict) -> List[Dict]:
             chunk["duration"] = end - start
             chunk["_offset"] = start
             chunks.append(chunk)
+        if end >= duration:
+            break
         start += CHUNK_SIZE_SECONDS - CHUNK_OVERLAP_SECONDS
     return chunks
 
@@ -227,6 +233,9 @@ def call_highlight_api(
         raw = llm_fn(prompt)
         try:
             parsed = _parse_json_loose(raw)
+            if is_chunk and parsed.get("highlights") == []:
+                # A chunk may legitimately hold nothing worth clipping (intro, outro, break).
+                return {"highlights": []}
             highlights = _sanitize_highlights(parsed.get("highlights"), min_start=offset, max_end=max_end)
             if highlights:
                 return {"highlights": snap_to_segments(highlights, segments)}
@@ -239,9 +248,10 @@ def call_highlight_api(
                 f"[highlights] invalid model output on attempt {attempt}/{MAX_HIGHLIGHT_API_ATTEMPTS}; retrying",
                 flush=True,
             )
+            # The retry number keeps each prompt distinct, so a cached answer is never replayed as a "retry".
             prompt = (
                 base_prompt
-                + "\n\nIMPORTANT: Return ONLY valid JSON with a top-level 'highlights' array."
+                + f"\n\nIMPORTANT (retry {attempt}): Return ONLY valid JSON with a top-level 'highlights' array."
                 + " Each item must include: title, start_time, end_time, score, hook_sentence, virality_reason,"
                 + " description, hashtags."
                 + " No markdown fences, no commentary."
@@ -290,10 +300,19 @@ def get_highlights(
         chunks = chunk_transcript(transcript)
         print(f"[highlights] long video — splitting into {len(chunks)} chunks", flush=True)
         all_highlights: List[Dict] = []
+        errors: List[str] = []
         for i, chunk in enumerate(chunks):
             print(f"[highlights] chunk {i + 1}/{len(chunks)} (offset {chunk['_offset']:.0f}s)", flush=True)
-            result = call_highlight_api(chunk, num_clips=num_clips, is_chunk=True, llm_fn=llm_fn)
+            try:
+                result = call_highlight_api(chunk, num_clips=num_clips, is_chunk=True, llm_fn=llm_fn)
+            except RuntimeError as e:
+                # One failing chunk must not sink the clips already found in the others.
+                print(f"[highlights] chunk {i + 1} skipped: {e}", flush=True)
+                errors.append(str(e))
+                continue
             all_highlights.extend(result.get("highlights", []))
+        if not all_highlights and errors:
+            raise RuntimeError(errors[-1])
         highlights = dedupe_highlights(all_highlights)
     else:
         result = call_highlight_api(transcript, num_clips=num_clips, llm_fn=llm_fn)

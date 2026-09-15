@@ -27,12 +27,16 @@ def _ratio(aspect_ratio: str) -> float:
 
 
 def _cut_subclip(source_path: str, start: float, end: float, out_path: str) -> str:
-    """ffmpeg -ss start -to end → re-encoded mp4 with audio."""
+    """ffmpeg -ss start -t duration → re-encoded mp4 with audio.
+
+    -ss before -i seeks straight to the keyframe instead of decoding the whole
+    video up to `start`; re-encoding keeps the cut frame-accurate.
+    """
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
-        "-i", source_path,
         "-ss", f"{start:.3f}",
-        "-to", f"{end:.3f}",
+        "-i", source_path,
+        "-t", f"{end - start:.3f}",
         "-c:v", "libx264", "-preset", "fast", "-crf", "20",
         "-c:a", "aac", "-b:a", "128k",
         out_path,
@@ -93,26 +97,29 @@ def _reframe_vertical(
         flush=True,
     )
 
-    # Stacked layout (webcam panel over a centre crop of the content), rendered
-    # at a sharper 9:16 size so the small webcam overlay isn't a thumbnail.
+    # Tall outputs render at the source height as width (1080x1920 from 1080p):
+    # the raw 9:16 crop of a landscape frame (608x1080) looks soft on phones, and
+    # the stacked layout needs the room so the small webcam overlay isn't a thumbnail.
     out_w, out_h, top_h = crop_w, crop_h, 0
     segments = [(0, len(xs), None)]
+    if target_ratio < 0.8:
+        out_w = min(1080, src_h - src_h % 2)
+        out_h = round(out_w / target_ratio)
+        out_h -= out_h % 2
     if target_ratio < 0.8 and layout != "single":
-        stack_w = min(1080, src_h - src_h % 2)
-        stack_h = round(stack_w / target_ratio)
-        stack_h -= stack_h % 2
-        top_h = round(stack_h * STACK_TOP_SHARE)
-        top_h -= top_h % 2
-        planned = plan_layout(analysis, top_aspect=stack_w / top_h, mode=layout)
+        panel_h = round(out_h * STACK_TOP_SHARE)
+        panel_h -= panel_h % 2
+        planned = plan_layout(analysis, top_aspect=out_w / panel_h, mode=layout)
         if any(box for _, _, box in planned):
-            out_w, out_h, segments = stack_w, stack_h, planned
+            top_h, segments = panel_h, planned
             stacked_frames = sum(end - start for start, end, box in planned if box)
             print(
                 f"[layout] webcam stacked on top for {stacked_frames / max(1, len(xs)):.0%} of the clip "
                 f"({len(planned)} segment{'s' if len(planned) > 1 else ''})",
                 flush=True,
             )
-    stacked = out_h != crop_h or out_w != crop_w
+    stacked = top_h > 0
+    resize = (out_w, out_h) != (crop_w, crop_h)
     bottom_h = out_h - top_h
     content_w = min(src_w, round(src_h * out_w / max(1, bottom_h)))
     content_h = src_h if content_w < src_w else round(src_w * bottom_h / out_w)
@@ -166,7 +173,7 @@ def _reframe_vertical(
             else:
                 x0, y0 = xs[i], ys[i]
                 composed = frame[y0:y0 + crop_h, x0:x0 + crop_w]
-                if stacked:
+                if resize:
                     composed = cv2.resize(composed, (out_w, out_h), interpolation=cv2.INTER_CUBIC)
             proc.stdin.write(np.ascontiguousarray(composed).tobytes())
             index += 1

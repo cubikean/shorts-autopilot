@@ -92,7 +92,7 @@ def _existing_download(out_dir: str, video_id: str) -> Optional[str]:
     return None
 
 
-def download_section_local(video_url: str, start: float, end: float, name: str, fmt: str = "720") -> str:
+def download_section_local(video_url: str, start: float, end: float, name: str, fmt: str = "1080") -> str:
     """Download only [start, end] seconds of a video (e.g. a moment in a long Twitch VOD)."""
     yt_dlp = _import_ytdlp()
     from yt_dlp.utils import download_range_func  # type: ignore
@@ -125,7 +125,7 @@ def download_section_local(video_url: str, start: float, end: float, name: str, 
     raise RuntimeError(f"section download produced no file for {video_url}")
 
 
-def download_youtube_local(video_url: str, fmt: str = "720", out_dir: Optional[str] = None) -> str:
+def download_youtube_local(video_url: str, fmt: str = "1080", out_dir: Optional[str] = None) -> str:
     """Download a remote URL or return a local file path unchanged."""
     local_path = _resolve_local_path(video_url)
     if local_path:

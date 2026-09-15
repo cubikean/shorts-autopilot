@@ -63,7 +63,7 @@ TWITCH_CLIENT_SECRET = _env("TWITCH_CLIENT_SECRET", "")
 FEED_SOURCES_FILE = _env("FEED_SOURCES_FILE", "sources.json")
 FEED_MIN_AGE_HOURS = float(_env("FEED_MIN_AGE_HOURS", "2"))       # view velocity is noise before this
 FEED_MAX_AGE_HOURS = float(_env("FEED_MAX_AGE_HOURS", "72"))
-# Source length limits, YouTube videos and Twitch VODs alike.
+# YouTube source length limits (Twitch only downloads a window around each moment).
 FEED_MIN_DURATION_MINUTES = float(_env("FEED_MIN_DURATION_MINUTES", "1"))
 FEED_MAX_DURATION_MINUTES = float(_env("FEED_MAX_DURATION_MINUTES", "120"))
 FEED_MIN_SCORE = float(_env("FEED_MIN_SCORE", "1.5"))             # YouTube: x times the channel's usual velocity

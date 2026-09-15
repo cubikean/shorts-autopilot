@@ -131,21 +131,27 @@ def _llm_cache_path(provider: str, prompt: str) -> Path:
     return Path(LOCAL_OUTPUT_DIR) / "llm_cache" / f"{key}.txt"
 
 
-def _is_json_response(raw: str) -> bool:
-    from ..highlights import _parse_json_loose
+def _has_highlights(raw: str) -> bool:
+    """True when the answer holds at least one usable highlight.
+
+    Only those are cached: an empty or broken answer would otherwise be
+    replayed forever for this transcript, failing the video on every run.
+    """
+    from ..highlights import _parse_json_loose, _sanitize_highlights
 
     try:
-        return isinstance(_parse_json_loose(raw), dict)
+        parsed = _parse_json_loose(raw)
     except ValueError:
         return False
+    return isinstance(parsed, dict) and bool(_sanitize_highlights(parsed.get("highlights"), 0, 0))
 
 
 def call_local_llm(prompt: str) -> str:
     """Dispatch to the configured local LLM provider.
 
     Responses are cached on disk by (provider, model, prompt): re-running the
-    same video costs no tokens. Only parseable JSON is cached, so a bad answer
-    is never replayed.
+    same video costs no tokens. Only answers with usable highlights are cached,
+    so an empty or bad answer is never replayed.
     """
     provider = (LLM_PROVIDER or "openai").strip().lower()
     backends = {"openai": call_openai_llm, "gemini": call_gemini_llm, "claude": call_claude_llm}
@@ -160,7 +166,7 @@ def call_local_llm(prompt: str) -> str:
         return cache_path.read_text(encoding="utf-8")
 
     response = backends[provider](prompt)
-    if _is_json_response(response):
+    if _has_highlights(response):
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(response, encoding="utf-8")
     return response

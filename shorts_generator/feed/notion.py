@@ -57,8 +57,18 @@ class Notion:
         })
 
     def _request(self, method: str, path: str, body: Optional[Dict] = None) -> Dict:
+        # Creating a page is the only non-idempotent call: retrying it after the request
+        # may have reached Notion could create a duplicate row (and a duplicate upload).
+        idempotent = method != "POST" or path.endswith("/query")
         for attempt in range(5):
-            resp = self.session.request(method, f"{API}/{path}", json=body, timeout=60)
+            try:
+                resp = self.session.request(method, f"{API}/{path}", json=body, timeout=60)
+            except requests.RequestException as e:
+                # Network blip: retry instead of aborting the whole run mid-video.
+                if attempt == 4 or not (idempotent or isinstance(e, requests.exceptions.ConnectTimeout)):
+                    raise RuntimeError(f"Notion {method} {path}: network error: {e}") from e
+                time.sleep(2 ** attempt)
+                continue
             if resp.status_code == 429 or resp.status_code >= 500:
                 time.sleep(float(resp.headers.get("Retry-After", 2 ** attempt)))
                 continue
@@ -167,6 +177,16 @@ class Notion:
                 "end": p["Fin (s)"]["number"],
             })
         return rows
+
+    def requeue_running(self, database_id: str) -> int:
+        """Put back videos left "En cours" by a run that died (crash, reboot, task time limit)."""
+        result = self._request("POST", f"databases/{database_id}/query", {
+            "filter": {"property": "Statut", "select": {"equals": STATUS_RUNNING}},
+            "page_size": 100,
+        })
+        for page in result.get("results", []):
+            self.set_status(page["id"], STATUS_TODO)
+        return len(result.get("results", []))
 
     def set_status(self, page_id: str, status: str, error: Optional[str] = None) -> None:
         props = {"Statut": _select(status), "Erreur": _text(error)}
