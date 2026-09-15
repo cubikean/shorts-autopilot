@@ -65,14 +65,16 @@ def _post(row: Dict) -> ShortPost:
 
 def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = None, dry_run: bool = False) -> None:
     names = platforms or PUBLISH_PLATFORMS
-    unknown = [name for name in names if name not in PLATFORMS]
+    # A short is Publié only once every enabled platform has it, even when --platform narrows the run.
+    required = list(dict.fromkeys([*PUBLISH_PLATFORMS, *names]))
+    unknown = [name for name in required if name not in PLATFORMS]
     if unknown:
         raise RuntimeError(f"unknown platform(s) {unknown}; supported: {', '.join(PLATFORMS)}")
     if not NOTION_SHORTS_DB:
         raise RuntimeError("NOTION_SHORTS_DB is not set. Run `python feed.py setup-notion <page>` and add the ids to .env.")
 
     notion = Notion(NOTION_TOKEN)
-    rows = notion.validated_shorts(NOTION_SHORTS_DB, link_columns(names), limit)
+    rows = notion.validated_shorts(NOTION_SHORTS_DB, link_columns(required), limit)
     print(f"[publish] {len(rows)} validated short(s) to publish on {', '.join(names)}")
     if not rows:
         return
@@ -91,8 +93,10 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
 
     for row in rows:
         post = _post(row)
-        done = {name for name in names if row["links"].get(PLATFORMS[name][0])}
+        done = {name for name in required if row["links"].get(PLATFORMS[name][0])}
         pending = [name for name in names if name not in done]
+        if not pending:
+            continue
         when = f" · programmé {post.publish_at:%Y-%m-%d %H:%M}" if post.publish_at else ""
         print(f"\n[publish] ▶ {post.title} → {', '.join(pending)}{when}", flush=True)
         if dry_run:
@@ -128,8 +132,8 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
 
         if failure:
             notion.set_publication(post.page_id, PUB_ERROR, failure[:1900])
-        elif len(done) == len(names):
+        elif all(name in done for name in required):
             notion.set_publication(post.page_id, PUB_PUBLISHED)
             print("[publish] ✔ published", flush=True)
         else:
-            print(f"[publish]   still waiting for: {', '.join(n for n in names if n not in done)}", flush=True)
+            print(f"[publish]   still waiting for: {', '.join(n for n in required if n not in done)}", flush=True)
