@@ -1,401 +1,226 @@
-# AI YouTube Shorts Generator
+# Shorts Autopilot
 
-[![Powered by MuAPI](https://img.shields.io/badge/Powered%20by-MuAPI-6366f1?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0tMSAxNHYtNGgtMnYtMmg0djZoLTJ6bTAtOFY2aDJ2MmgtMnoiLz48L3N2Zz4=)](https://muapi.ai?utm_source=github&utm_medium=badge&utm_campaign=ai-youtube-shorts-generator)
+Pipeline automatique de shorts : repère les vidéos qui décollent sur une liste
+de chaînes YouTube / Twitch, en extrait les meilleurs moments en 9:16 sous-titrés,
+les range dans Notion pour validation, puis publie sur YouTube ceux que tu valides.
 
+```
+07h00  discover  → Notion « Vidéos à traiter »   (vidéos virales repérées)
+01h00  process   → Notion « Shorts » À publier   (mp4 + titre, description, hashtags)
+ toi             → Publication = Validé
+/4 h   publish   → YouTube                        (lien écrit dans Notion, statut Publié)
+```
 
-**The open-source alternative to Opus Clip, Vidyo.ai, Klap, SubMagic, 2short.ai, and other AI clipping tools.** Drop in any long-form YouTube video and get back ranked, viral-ready 9:16 shorts — for free, with no per-clip credits, no watermarks, and full control over the highlight algorithm.
+> Ne liste que des chaînes que tu as le droit de clipper (programmes de clipping,
+> tes propres chaînes, accord écrit). Sinon : Content ID et démonétisation
+> « contenu réutilisé ».
 
-Built for creators, agencies, and developers who don't want to pay $20–$300/month or be capped on minutes processed. Uses GPT-class LLM highlight detection and Whisper transcription to extract the most viral-worthy moments and auto-crop them vertically for TikTok, Reels, and Shorts.
+## Installation (Windows)
 
-<p align="center"><a href="https://www.youtube.com/watch?v=kT1CO4BYV3A"><img src="https://i.ytimg.com/vi/kT1CO4BYV3A/maxresdefault.jpg" width="720"></a></p>
-<p align="center"><a href="https://www.youtube.com/watch?v=kT1CO4BYV3A"><b>▶ Watch: Free Unlimited AI Image Generator (Truly no limits, Open Source, No Watermark) </b></a></p>
-
-> **Building your own Opus Clip–style SaaS?** Skip the infra and ship on the same APIs that power this repo:
-> - [AI Clipping API](https://muapi.ai/playground/ai-clipping?utm_source=github&utm_medium=readme&utm_campaign=ai-youtube-shorts-generator) — end-to-end clip selection + render
-> - [Auto-Crop API](https://muapi.ai/playground/autocrop?utm_source=github&utm_medium=readme&utm_campaign=ai-youtube-shorts-generator) — vertical reframing only
-
-![longshorts](https://github.com/user-attachments/assets/3f5d1abf-bf3b-475f-8abf-5e253003453a)
-
-<p align="center">
-  <a href="https://github.com/Anil-matcha/awesome-generative-ai-apps">
-    <img src="https://img.shields.io/badge/Part%20of-Awesome%20Generative%20AI%20Apps-FFD700?style=for-the-badge&logo=github&logoColor=black" alt="Awesome Generative AI Apps">
-  </a>
-</p>
-
-> 🎨 **[Explore 50+ more open-source AI apps →](https://github.com/Anil-matcha/awesome-generative-ai-apps)**
-
-## Why Use This Instead of Opus Clip / Vidyo.ai / Klap?
-
-| | This repo | Opus Clip / Vidyo.ai / Klap / SubMagic |
-|---|---|---|
-| **Price** | Free + open source (pay only for API usage) | $20–$300/month subscriptions |
-| **Per-clip credits** | None — process unlimited videos | Monthly minute caps, overage fees |
-| **Watermarks** | Never | On free tiers |
-| **Highlight algorithm** | Fully editable virality framework | Black box |
-| **Output format** | Any aspect ratio, any resolution | Locked presets |
-| **Batch processing** | `xargs` an entire URL list | Manual upload one-by-one |
-| **JSON / API output** | Built-in (`--output-json`) | Limited or paid tier only |
-| **Self-hostable** | Yes — runs on your machine or server | SaaS only, your videos sit on their servers |
-| **White-label / embeddable** | Yes — MIT licensed, import as Python lib | No |
-
-## Features
-
-- **🎬 YouTube In, Vertical Out**: Hand it any YouTube URL — get back N viral-ready 9:16 mp4s
-- **🔀 Two Modes — API (fast) or Local (offline)**: Default `--mode api` uses MuAPI for download/transcription/cropping; `--mode local` runs entirely on your machine with `yt-dlp`, `faster-whisper`, and `ffmpeg`/`opencv`, and lets you pick OpenAI or Gemini for highlight ranking
-- **🤖 Virality-Aware Highlight Selection**: Clips ranked on hooks, emotional peaks, opinion bombs, revelation moments, conflict, quotable lines, story peaks, and practical value — not just generic "interesting"
-- **📈 Score + Hook + Reason for Every Clip**: Each highlight comes with a viral score, an opening hook line, and a one-sentence explanation of why it works
-- **🎤 Whisper Transcription, Your Choice**: Cloud (`/openai-whisper` via MuAPI) or local (`faster-whisper`, CPU or CUDA) — same downstream output shape
-- **🧩 Long-Video Aware**: Videos over 30 minutes are auto-chunked with overlap so nothing gets missed
-- **♻️ Smart Dedupe**: Overlapping highlights are collapsed by score so you never get two near-duplicate clips
-- **🎯 Smart Vertical Crop**: API mode uses MuAPI's auto-crop; local mode runs OpenCV face tracking with motion smoothing
-- **📱 Any Aspect Ratio**: 9:16 for TikTok/Reels/Shorts, 1:1 for square, anything else by flag
-- **🧰 CLI + Python Library**: Use it from the shell or import `generate_shorts(...)` into your own pipeline
-- **📦 JSON Output**: `--output-json` dumps the full result (transcript + every candidate highlight + final clip URLs/paths) for downstream automation
-
-## Quick Start (No Setup)
-
-Don't want to self-host? The [AI Clipping API](https://muapi.ai/playground/ai-clipping?utm_source=github&utm_medium=readme&utm_campaign=ai-youtube-shorts-generator) gives you the same Opus Clip–style pipeline as a single HTTP call — no Python, no dependencies, pay-per-clip instead of monthly subscriptions.
-
----
-
-## Installation (Self-Hosted)
-
-### Prerequisites
-
+Prérequis :
 - Python 3.10+
-- For **API mode (default)**: a MuAPI key — powers download, transcription, highlight ranking, and clipping in a single dependency
-- For **Local mode** (`--mode local`): `ffmpeg` on your PATH and an LLM API key (`OPENAI_API_KEY` or `GEMINI_API_KEY`; only the LLM step is remote)
+- `ffmpeg` dans le PATH
+- [Claude Code](https://claude.com/claude-code) installé et connecté (`claude` une fois) — c'est lui qui choisit les moments et écrit les textes, sur ton abonnement Claude. OpenAI ou Gemini restent possibles via `LLM_PROVIDER`.
+- Optionnel : GPU NVIDIA pour une transcription beaucoup plus rapide (aucun torch requis)
 
-### Steps
+```powershell
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements-local.txt
+copy .env.example .env
+```
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/SamurAIGPT/AI-Youtube-Shorts-Generator.git
-   cd AI-Youtube-Shorts-Generator
+## Configuration
+
+### 1. Notion
+
+1. Crée une intégration interne sur <https://www.notion.so/my-integrations> et mets son token dans `NOTION_TOKEN`.
+2. Partage une page vide avec l'intégration, puis :
+   ```powershell
+   python feed.py setup-notion "<URL de la page>"
    ```
+3. Copie les deux ids affichés dans `.env` (`NOTION_VIDEOS_DB`, `NOTION_SHORTS_DB`).
 
-2. **Create and activate a virtual environment:**
-   ```bash
-   python3.10 -m venv venv
-   source venv/bin/activate
+### 2. Sources
+
+Copie `sources.example.json` en `sources.json` et liste les chaînes :
+
+```json
+{
+  "youtube": [{"handle": "@Gotaga"}, {"channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx"}],
+  "twitch": [{"login": "zerator"}]
+}
+```
+
+Twitch est optionnel : crée une app sur <https://dev.twitch.tv/console/apps> et
+renseigne `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`, sinon Twitch est ignoré.
+
+### 3. YouTube (publication)
+
+1. Dans [Google Cloud Console](https://console.cloud.google.com) : active **YouTube Data API v3**.
+2. **Google Auth Platform → Branding** : nom de l'app, e-mail d'assistance, contact développeur. Pas de logo (sinon validation Google obligatoire).
+3. **Audience** : clique sur **Publier l'application** (en mode Test, le token expire au bout de 7 jours).
+4. **Clients** : crée un client OAuth de type **Application de bureau**, télécharge le JSON en `client_secret.json` à la racine.
+5. Puis, une seule fois :
+   ```powershell
+   python feed.py setup-publish   # ajoute Validé / Erreur, colonnes YouTube et dates dans Notion
+   python feed.py auth-youtube    # consentement dans le navigateur, choisis la chaîne
    ```
+   Sur « Google n'a pas validé cette application » : **Paramètres avancés → Accéder à l'app**.
 
-3. **Install Python dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   # Only if you plan to use --mode local:
-   pip install -r requirements-local.txt
-   ```
+`client_secret.json`, `youtube_token.json` et `.env` sont ignorés par git.
 
-4. **Set up environment variables:**
+## Utilisation
 
-   Create a `.env` file in the project root:
-   ```bash
-   # API mode (default)
-   MUAPI_API_KEY=your_muapi_key_here
-
-   # Local mode (--mode local)
-   LLM_PROVIDER=openai         # openai or gemini
-   OPENAI_API_KEY=your_openai_key_here
-   OPENAI_MODEL=gpt-4o-mini          # optional, default gpt-4o-mini
-   GEMINI_API_KEY=your_gemini_key_here
-   GEMINI_MODEL=gemini-2.5-flash      # optional, default gemini-2.5-flash
-   LOCAL_WHISPER_MODEL=auto          # auto = detect language, then pick from LOCAL_WHISPER_MODELS; or force e.g. base
-   LOCAL_WHISPER_MODELS=en=large-v3,*=large-v3-turbo
-   LOCAL_WHISPER_DEVICE=auto         # auto (NVIDIA GPU if usable, no torch needed) / cpu / cuda
-   LOCAL_OUTPUT_DIR=output           # where local mp4s land
-   ```
-
-## Usage
-
-### Single video (API mode — default)
-
-```bash
-python main.py "https://www.youtube.com/watch?v=VIDEO_ID"
-```
-
-### Single video (Local mode — runs offline except for the LLM call)
-
-```bash
-python main.py "https://www.youtube.com/watch?v=VIDEO_ID" --mode local
-```
-
-Local mode writes the rendered shorts to `./output/short_01.mp4`, `short_02.mp4`, … (override with `LOCAL_OUTPUT_DIR`).
-
-### With options
-
-```bash
-python main.py "https://www.youtube.com/watch?v=VIDEO_ID" \
-    --mode api \
-    --num-clips 5 \
-    --aspect-ratio 9:16 \
-    --output-json result.json
-```
-
-### Local file or path
-
-In `--mode local`, you can pass a `file://` URL or a direct filesystem path and skip YouTube entirely:
-
-```bash
-python main.py "/Users/you/Videos/input.mp4" --mode local
-python main.py "file:///Users/you/Videos/input.mp4" --mode local
-```
-
-The Python API works the same way:
-
-```python
-from shorts_generator import generate_shorts
-
-result = generate_shorts(
-    "/Users/you/Videos/input.mp4",
-    num_clips=5,
-    aspect_ratio="9:16",
-    mode="local",
-)
-for short in result["shorts"]:
-    print(short["score"], short["title"], short["clip_url"])
-```
-
-Local transcription is cached as an `.srt` file in `LOCAL_OUTPUT_DIR` using the
-video's base name. If the cache already exists and is newer than the source
-file, the app reuses it instead of running Whisper again.
-
-Local downloads are also cached in `LOCAL_OUTPUT_DIR` as
-`source_<youtube_id>.mp4` when the input is a YouTube URL. If that file already
-exists, the app skips `yt-dlp` and reuses the cached video.
-
-### Batch processing
-
-Create a `urls.txt` file with one URL per line, then:
-
-```bash
-xargs -a urls.txt -I{} python main.py "{}"
-```
-
-### Daily feed (Notion queue)
-
-`feed.py` turns the generator into a daily pipeline: it watches a whitelist of
-YouTube and Twitch channels, queues fresh viral videos in a Notion database,
-and renders shorts — with a title, description and hashtags — from that queue.
-
-> Only whitelist channels you are allowed to clip (clipping programs, your own
-> channels, written permission). Reuploading other creators' videos without
-> permission leads to Content ID claims and "reused content" demonetisation.
-
-1. **Notion** — create an internal integration at
-   <https://www.notion.so/my-integrations>, put its token in `NOTION_TOKEN`,
-   share an empty page with the integration, then run
-   `python feed.py setup-notion "<page URL>"` and copy the two database ids it
-   prints into `.env`.
-2. **Twitch (optional)** — create an app at <https://dev.twitch.tv/console/apps>
-   and set `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`.
-3. **Sources** — copy `sources.example.json` to `sources.json` and list channels
-   (`{"handle": "@name"}` or `{"channel_id": "UC…"}` for YouTube, `{"login": "name"}` for Twitch).
-4. **Run**
-
-```bash
-python feed.py discover --dry-run   # preview candidates, nothing written
-python feed.py discover             # queue new videos in Notion ("À traiter")
-python feed.py process --limit 3    # render shorts for the best queued videos
-```
-
-How candidates are found:
-
-| Platform | Source | Score |
-|---|---|---|
-| YouTube | public channel RSS feed (no API key) + `yt-dlp` for duration/live status | views per hour ÷ the channel's median views per hour; queued from `FEED_MIN_SCORE` (1.5) |
-| Twitch | Helix API: the channel's most-viewed clips of the last 24 h, merged into moments | moment clip views ÷ the channel's median moment that day |
-
-Sources must last between `FEED_MIN_DURATION_MINUTES` (1) and
-`FEED_MAX_DURATION_MINUTES` (120) — the video for YouTube, the whole VOD for
-Twitch; anything outside is skipped with the reason in the log. Videos that
-are already YouTube Shorts are never queued, whatever their length.
-
-Twitch moments only download a window around the clipped moment (not the whole
-VOD) and yield one short each. Every short gets a row in the Notion **Shorts**
-database (title, description with source credit, hashtags, file path,
-"À publier") and a `short_XX.json` next to the mp4.
-
-To run it every day on Windows, register the scheduled tasks (discover at 07:00,
-process at 01:00, publish every 4 h from 09:00; logs in `output/logs/`):
+### En automatique
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1
 ```
 
-### Publishing (YouTube)
-
-Review the shorts in Notion and set **Publication** to **Validé**: `feed.py publish`
-uploads them and fills the platform's URL column, then sets **Publié**. Failures
-set **Erreur** with the reason in *Erreur publication* (set *Validé* again to
-retry). A **Date de publication** in the future schedules the release on YouTube.
-
-| YouTube field | Notion columns |
-|---|---|
-| Title | *Titre* (fallback *Accroche*), 100 chars max |
-| Description | « *Accroche* » + *Description* (with source credit) + *Hashtags* |
-| Tags | *Hashtags* without `#` |
-
-1. **Google Cloud** — in a project, enable *YouTube Data API v3*; configure the
-   OAuth consent screen (External) and **publish it to "In production"** (in
-   "Testing" the token expires after 7 days); create an OAuth client of type
-   *Desktop app* and save its JSON as `client_secret.json` at the repo root.
-2. **Once** — `pip install -r requirements-local.txt`, then:
-
-```bash
-python feed.py setup-publish   # adds Validé/Erreur, URL and date columns to the Shorts database
-python feed.py auth-youtube    # browser consent: pick the channel to upload to
-python feed.py publish --dry-run
-python feed.py publish         # PUBLISH_MAX_PER_RUN shorts (default 1)
-```
-
-> **Unaudited API projects** created after July 2020 have every upload locked
-> to *private* by YouTube, whatever `YOUTUBE_PRIVACY` says. Request the
-> [YouTube API audit](https://support.google.com/youtube/contact/yt_api_form)
-> to publish publicly, or switch the videos to public in YouTube Studio meanwhile.
-> The default quota (10 000 units/day) allows about 6 uploads a day; when it
-> runs out the run stops and the remaining shorts wait for the next run.
-
-Platforms are pluggable (`shorts_generator/publish/`): each one is a
-`Publisher` plus a URL column in Notion, listed in `PUBLISH_PLATFORMS`.
-
-### CLI flags
-
-| Flag | Default | Notes |
-|------|---------|-------|
-| `--mode` | `api` | `api` (MuAPI, fast, no setup) or `local` (remote URL, `file://`, or local path + faster-whisper + LLM provider + ffmpeg) |
-| `--num-clips` | `3` | How many shorts to render |
-| `--aspect-ratio` | `9:16` | Any ratio; `9:16` for TikTok/Reels, `1:1` for square |
-| `--format` | `720` | Source download resolution: `360` / `480` / `720` / `1080` |
-| `--language` | auto | Force Whisper language code (e.g. `en`) |
-| `--output-json` | — | Dump the full result (transcript + all candidates) to a file |
-| `--no-subtitles` | off | Local mode: skip the burned-in word-by-word captions |
-| `--layout` | `auto` | Local mode: `auto` stacks a detected stream webcam above the content, `single` face-tracked crop only, `stack` forces webcam-on-top |
-
-### API mode vs Local mode
-
-| Step | API mode (`--mode api`) | Local mode (`--mode local`) |
+| Tâche | Quand | Rôle |
 |---|---|---|
-| Download | MuAPI `/youtube-download` | `yt-dlp` for remote URLs, direct file path for local inputs |
-| Transcription | MuAPI `/openai-whisper` | `faster-whisper` (CPU or CUDA) |
-| Highlight LLM | MuAPI `gpt-5-mini` | `LLM_PROVIDER=openai` uses OpenAI (`gpt-4o-mini` by default), `LLM_PROVIDER=gemini` uses Gemini (`gemini-2.5-flash` by default) |
-| Vertical crop | MuAPI `/autocrop` | `ffmpeg` + OpenCV face tracking |
-| Output | hosted URLs | local mp4 paths |
-| Required keys | `MUAPI_API_KEY` | `OPENAI_API_KEY` or `GEMINI_API_KEY` (+ `ffmpeg` on PATH) |
+| `ShortsFeed-Process` | 01h00 | génère les shorts des vidéos en file |
+| `ShortsFeed-Discover` | 07h00 | cherche les nouvelles vidéos virales |
+| `ShortsFeed-Publish` | 09h, 13h, 17h, 21h, 01h, 05h | publie les shorts validés (`PUBLISH_MAX_PER_RUN` par passage) |
 
-## How It Works
+Les horaires se changent en paramètres du script (`-DiscoverAt`, `-ProcessAt`,
+`-PublishFrom`, `-PublishEveryHours`). Le PC doit être allumé avec ta session
+ouverte (il est réveillé de la veille). Logs : `output\logs\`.
+Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 
-1. **Download**: Fetches the source video from YouTube
-2. **Transcribe**: MuAPI `/openai-whisper` produces a timestamped transcript (verbose_json segments)
-3. **Detect content type**: An LLM classifies the video (podcast, interview, tutorial, vlog, etc.) and density, so the prompt can be tuned per content style
-4. **Long-video chunking**: Videos > 30 min are split into 20-min overlapping chunks
-5. **Highlight ranking**: An LLM scans the transcript through a virality framework — hook moments, emotional peaks, opinion bombs, revelations, conflict, quotables, story peaks, practical value — and emits ranked candidates with scores 0–100
-6. **Dedupe**: Overlapping candidates are collapsed by score (>50% overlap → keep the higher score)
-7. **Top-N selection**: The top `--num-clips` candidates are selected
-8. **Auto-crop**: Each highlight is rendered as a vertical short at the requested aspect ratio
+### À la main
 
-**Output**: a list of mp4 URLs plus, for each clip, its title, viral score, hook sentence, and a one-line reason explaining why it should perform.
+| Commande | Rôle |
+|---|---|
+| `python feed.py discover --dry-run` | affiche les candidats sans rien écrire |
+| `python feed.py discover` | ajoute les nouvelles vidéos dans Notion |
+| `python feed.py process --limit 3` | génère les shorts des meilleures vidéos en file |
+| `python feed.py publish --dry-run` | liste ce qui serait publié |
+| `python feed.py publish --limit 1` | publie les shorts validés |
 
-## Output
+Pour tester un upload sans le rendre public :
+`$env:YOUTUBE_PRIVACY="private"; python feed.py publish`
 
-Console output looks like:
+### Une vidéo précise, hors pipeline
 
-```
-========================================================================
-Highlights:    7 candidates → kept top 3
-========================================================================
-
-#1  score=92  124.3s → 187.6s
-     title:  The one mistake that cost me $50K
-     hook:   "Nobody talks about this, but it killed my first startup..."
-     clip:   https://.../short_1.mp4
-
-#2  score=88  ...
+```powershell
+python main.py "https://www.youtube.com/watch?v=VIDEO_ID" --mode local --num-clips 3
+python main.py "D:\Videos\stream.mp4" --mode local --layout stack
 ```
 
-`--output-json result.json` produces:
+Toujours passer `--mode local` : le mode par défaut (`api`, MuAPI) vient du
+projet d'origine et n'est pas utilisé ici. Les clips arrivent dans
+`output\<id>\short_01.mp4` avec un `short_01.json` (titre, description, hashtags).
 
-```json
-{
-  "source_video_url": "...",
-  "transcript": { "duration": 1873.4, "segments": [...] },
-  "highlights": [ {...}, {...}, ... ],
-  "shorts": [
-    {
-      "title": "...",
-      "start_time": 124.3,
-      "end_time": 187.6,
-      "score": 92,
-      "hook_sentence": "...",
-      "virality_reason": "...",
-      "clip_url": "https://.../short_1.mp4"
-    }
-  ]
-}
+| Option | Défaut | Rôle |
+|---|---|---|
+| `--num-clips` | `3` | nombre de shorts |
+| `--layout` | `auto` | `auto` : webcam de stream détectée placée au-dessus du jeu ; `single` : cadrage sur le visage ; `stack` : force la webcam en haut |
+| `--no-subtitles` | — | désactive les sous-titres incrustés |
+| `--language` | auto | force la langue de Whisper (`fr`, `en`…) |
+| `--format` | `720` | résolution téléchargée : `360` / `480` / `720` / `1080` |
+| `--aspect-ratio` | `9:16` | ratio de sortie |
+| `--output-json` | — | écrit le résultat complet (transcription + tous les candidats) |
+
+## Workflow Notion
+
+**Vidéos à traiter** — `Statut` : À traiter → En cours → Prêt (ou Erreur, avec la raison).
+Passe une vidéo en *Rejeté* pour qu'elle ne soit jamais traitée.
+
+**Shorts** — `Publication` :
+
+| Statut | Signification |
+|---|---|
+| À publier | généré, en attente de ta relecture |
+| **Validé** | à toi de le mettre : il partira au prochain `publish` |
+| Publié | en ligne, lien dans la colonne **YouTube** |
+| Erreur | échec, raison dans *Erreur publication* ; remets *Validé* pour réessayer |
+| Rejeté | ignoré |
+
+Tu peux modifier les textes dans Notion avant de valider : c'est ce qui est publié.
+Une **Date de publication** dans le futur programme la sortie sur YouTube.
+
+| YouTube | Colonnes Notion |
+|---|---|
+| Titre | *Titre* (sinon *Accroche*), 100 caractères max |
+| Description | « *Accroche* » + *Description* (avec crédit source) + *Hashtags* |
+| Tags | *Hashtags* sans `#` |
+
+## Comment ça marche
+
+**Découverte**
+- **YouTube** : flux RSS public des chaînes (sans clé ni quota). Score = vues/heure de la vidéo ÷ vues/heure médianes de la chaîne. Mise en file à partir de `FEED_MIN_SCORE` (1.5). Les vidéos déjà en format Short, en live ou hors `FEED_MIN/MAX_DURATION_MINUTES` sont ignorées.
+- **Twitch** : clips les plus vus des dernières 24 h, fusionnés en « moments ». Seule une fenêtre autour du moment est téléchargée (pas le VOD entier) et donne un short.
+
+**Génération**
+1. **Téléchargement** avec `yt-dlp` (mis en cache : `output\source_<id>.mp4`).
+2. **Transcription** `faster-whisper` : langue détectée, puis `large-v3` pour l'anglais et `large-v3-turbo` pour le reste (`LOCAL_WHISPER_MODELS`). Mise en cache en `.srt`.
+3. **Choix des moments** par le LLM : grille de viralité (accroche, pic d'émotion, prise de position, révélation, conflit, punchline, chute d'histoire, astuce), clips de 20 à 180 s, sans chevauchement. Titre, description et hashtags écrits sur un ton ado, direct. Réponses mises en cache (`output\llm_cache`) : relancer la même vidéo ne coûte rien.
+4. **Cadrage vertical** : détection de visage YuNet, un sujet suivi par plan, caméra fixe quand il bouge peu, coupes franches entre les plans. Webcam de stream détectée → empilée au-dessus du contenu.
+5. **Sous-titres** mot par mot, en majuscules, avec effet « pop », dans la langue parlée.
+
+**Publication** : upload YouTube reprenable (retries automatiques). Quand le
+quota est épuisé, le passage s'arrête et les shorts restants attendent le suivant.
+
+Pour ajuster le ton ou les critères : `HIGHLIGHT_SYSTEM_PROMPT` et
+`VIRALITY_CRITERIA` dans `shorts_generator/highlights.py`.
+
+## Réglages (`.env`)
+
+Tout est documenté dans `.env.example`. Les plus utiles :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `LLM_PROVIDER` | `openai` | `claude`, `openai` ou `gemini` |
+| `CLAUDE_MODEL` / `CLAUDE_EFFORT` / `CLAUDE_THINKING` | `sonnet` / `low` / `off` | coût vs qualité des appels Claude |
+| `LOCAL_WHISPER_DEVICE` | `auto` | `auto` (GPU si dispo), `cpu`, `cuda` |
+| `SUBTITLE_FONT` / `SUBTITLE_POSITION` | `Arial Black` / `0.70` | police et hauteur des sous-titres (0 = haut, 1 = bas) |
+| `FEED_MIN_SCORE` | `1.5` | seuil de viralité YouTube (0 = toutes les nouvelles vidéos) |
+| `FEED_MAX_PER_RUN` / `FEED_CLIPS_PER_VIDEO` | `3` / `3` | vidéos traitées par nuit, shorts par vidéo |
+| `PUBLISH_MAX_PER_RUN` | `1` | shorts publiés par passage |
+| `YOUTUBE_PRIVACY` | `public` | `public`, `unlisted` ou `private` |
+| `YOUTUBE_CATEGORY_ID` | `24` | 24 Divertissement, 20 Jeux vidéo, 23 Humour |
+
+## Structure
+
+```
+feed.py                      CLI du pipeline (setup, discover, process, publish)
+main.py                      CLI pour une vidéo isolée
+scripts/schedule_windows.ps1 tâches planifiées Windows
+shorts_generator/
+├── config.py                lecture du .env
+├── pipeline.py              enchaîne téléchargement → transcription → moments → rendu
+├── highlights.py            prompt et sélection des moments (LLM)
+├── local/                   downloader (yt-dlp), transcriber (whisper), llm, clipper (ffmpeg),
+│                            reframe (cadrage visage / webcam), subtitles
+├── feed/                    découverte YouTube / Twitch, client Notion, runner discover/process
+└── publish/                 base (Publisher), youtube, runner publish
 ```
 
-## Configuration
+Les fichiers à la racine de `shorts_generator/` (`muapi.py`, `downloader.py`,
+`transcriber.py`, `clipper.py`) ne servent qu'au mode `api` hérité.
 
-### Highlight selection criteria
-Edit `shorts_generator/highlights.py`:
-- **Virality framework**: `VIRALITY_CRITERIA` — the ranked list of signals the LLM optimizes for
-- **System prompt**: `HIGHLIGHT_SYSTEM_PROMPT` — duration sweet spot, hook rules, JSON schema
-- **Chunk size**: `CHUNK_SIZE_SECONDS` (default 1200) — chunk length for long videos
-- **Long-video threshold**: `LONG_VIDEO_THRESHOLD` (default 1800) — videos longer than this are chunked
-- **Chunk overlap**: `CHUNK_OVERLAP_SECONDS` (default 60) — overlap between chunks so cross-boundary clips aren't missed
+### Ajouter une plateforme
 
-### Polling / timeout
-Edit `shorts_generator/config.py` (or set env vars):
-- `MUAPI_POLL_INTERVAL` (default 5s) — seconds between job-status polls
-- `MUAPI_POLL_TIMEOUT` (default 1800s) — give up after this long
+Chaque plateforme = une classe `Publisher` (`publish(post) -> url`) dans
+`shorts_generator/publish/`, plus une entrée dans `PLATFORMS`
+(`publish/runner.py`) avec le nom de sa colonne URL dans Notion. Ajoute-la à
+`PUBLISH_PLATFORMS` et relance `python feed.py setup-publish`. TikTok est la prochaine.
 
-### Whisper transcription
-Audio is transcribed by MuAPI's `/openai-whisper` endpoint (server-side `whisper-1`). Pass `--language <code>` to lock the recognition to a specific language; otherwise it auto-detects.
+## Dépannage
 
-## Project Structure
+| Problème | Solution |
+|---|---|
+| `Erreur 403 : access_denied` à l'autorisation | app Google en mode Test : publie-la (voir Configuration → YouTube) |
+| `YouTube token expired or revoked` | `python feed.py auth-youtube` |
+| Vidéos toujours privées sur YouTube | projet Google non audité : uploads bloqués en privé. Demande l'[audit de l'API YouTube](https://support.google.com/youtube/contact/yt_api_form) ou passe-les en public dans Studio |
+| `quotaExceeded` | quota YouTube (~6 uploads/jour) : ça repart le lendemain |
+| `Fichier introuvable` dans Notion | le mp4 a été déplacé ou supprimé de `output\shorts\` |
+| `LLM_PROVIDER=claude needs the Claude Code CLI` | installe Claude Code et lance `claude` une fois |
+| Whisper ne produit aucun segment | pas de parole détectée : essaie `--language fr` |
+| Tâche planifiée qui ne fait rien | regarde `output\logs\ShortsFeed-*.log` |
 
-```
-AI-Youtube-Shorts-Generator/
-├── main.py                       CLI entry point
-├── requirements.txt              core deps (api mode)
-├── requirements-local.txt        optional deps for --mode local
-├── .env.example
-└── shorts_generator/
-    ├── config.py                 env / settings (MuAPI + local LLM + Whisper)
-    ├── muapi.py                  generic submit + poll wrapper
-    ├── downloader.py             API mode: YouTube download via MuAPI
-    ├── transcriber.py            API mode: MuAPI /openai-whisper client
-    ├── highlights.py             shared LLM virality ranking (pluggable backend)
-    ├── clipper.py                API mode: MuAPI /autocrop
-    ├── pipeline.py               mode dispatcher (api ↔ local)
-    └── local/                    --mode local backends (offline)
-        ├── downloader.py         yt-dlp download
-        ├── transcriber.py        faster-whisper transcription
-        ├── llm.py                OpenAI or Gemini client selector
-        └── clipper.py            ffmpeg cut + OpenCV vertical crop
-```
+## Licence
 
-## Troubleshooting
-
-### Whisper produced no segments
-The video may have no detectable speech, or it may be in a language Whisper struggles with. Try passing `--language en` (or the correct ISO-639-1 code) to skip auto-detection.
-
-### Looking for better results?
-The [AI Clipping API](https://muapi.ai/playground/ai-clipping?utm_source=github&utm_medium=readme&utm_campaign=ai-youtube-shorts-generator) uses an improved algorithm that produces higher-quality clips with better highlight detection.
-
-## Contributing
-
-Contributions are welcome! Please fork the repository and submit a pull request.
-
-## License
-
-This project is licensed under the MIT License.
-
-## Related Projects
-
-- [AI Influencer Generator](https://github.com/SamurAIGPT/AI-Influencer-Generator)
-- [Text to Video AI](https://github.com/SamurAIGPT/Text-To-Video-AI)
-- [Faceless Video Generator](https://github.com/SamurAIGPT/Faceless-Video-Generator)
-- [AI B-roll Generator](https://github.com/Anil-matcha/AI-B-roll)
-- [No-code YouTube Shorts Generator](https://www.vadoo.tv/clip-youtube-video)
-- [ai-creator-academy](https://github.com/Anil-matcha/ai-creator-academy) — free curriculum teaching creators how to monetize AI-generated shorts and video content
+MIT. Basé sur [SamurAIGPT/AI-Youtube-Shorts-Generator](https://github.com/SamurAIGPT/AI-Youtube-Shorts-Generator).
