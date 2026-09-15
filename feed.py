@@ -7,6 +7,7 @@ Usage:
     python feed.py setup-publish          # add publishing columns to an existing Shorts database
     python feed.py auth-youtube           # one-time OAuth consent for the upload channel
     python feed.py auth-tiktok            # one-time OAuth consent for TikTok drafts
+    python feed.py notify-test            # test phone notification (ntfy)
     python feed.py publish [--limit 1] [--platform youtube] [--dry-run]
 """
 import argparse
@@ -37,6 +38,7 @@ def main() -> int:
     sub.add_parser("setup-publish", help="add the publishing columns/options to the Notion Shorts database")
     sub.add_parser("auth-youtube", help="authorise uploads to your YouTube channel (opens a browser once)")
     sub.add_parser("auth-tiktok", help="authorise draft uploads to your TikTok account (opens a browser once)")
+    sub.add_parser("notify-test", help="send a test notification to your phone (ntfy)")
 
     pub = sub.add_parser("publish", help="upload the shorts marked Validé in Notion")
     pub.add_argument("--limit", type=int, default=PUBLISH_MAX_PER_RUN, help=f"shorts per run (default {PUBLISH_MAX_PER_RUN})")
@@ -71,6 +73,17 @@ def main() -> int:
             from shorts_generator.publish.tiktok import authorize
 
             authorize()
+        elif args.command == "notify-test":
+            from shorts_generator import notify
+            from shorts_generator.config import NTFY_TOPIC
+
+            if not NTFY_TOPIC:
+                raise RuntimeError("NTFY_TOPIC is not set in .env.")
+            sample = "titre du short 🔥\n\ndescription du short, avec des accents é à ç\n\n#hashtag #shorts"
+            if not notify.send("Test Shorts Autopilot", sample, copy=sample, copy_label="Copier la légende",
+                               open_url="https://www.tiktok.com/", open_label="Ouvrir TikTok"):
+                raise RuntimeError("notification not sent (see above)")
+            print(f"Test notification sent to ntfy topic {NTFY_TOPIC}")
         elif args.command == "publish":
             from shorts_generator.publish.runner import publish
 

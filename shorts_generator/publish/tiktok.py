@@ -21,6 +21,7 @@ from typing import Dict, Optional
 
 import requests
 
+from .. import notify
 from ..config import (
     TIKTOK_CLIENT_KEY,
     TIKTOK_CLIENT_SECRET,
@@ -223,7 +224,14 @@ class TikTokPublisher(Publisher):
             status = self._api("post/publish/status/fetch/", {"publish_id": publish_id})
             state = status.get("status")
             if state in ("SEND_TO_USER_INBOX", "PUBLISH_COMPLETE"):
-                print(f"[publish/tiktok]   draft sent to the TikTok inbox. Caption to paste:\n{caption(post)}", flush=True)
+                text = caption(post)
+                print(f"[publish/tiktok]   draft sent to the TikTok inbox. Caption to paste:\n{text}", flush=True)
+                # The API can't pre-fill the caption, so push it to the phone, ready to copy.
+                notify.send(
+                    f"Brouillon TikTok prêt : {post.title}"[:200], text,
+                    copy=text, copy_label="Copier la légende",
+                    open_url="https://www.tiktok.com/", open_label="Ouvrir TikTok",
+                )
                 return f"https://www.tiktok.com/@{TIKTOK_USERNAME}" if TIKTOK_USERNAME else "https://www.tiktok.com/"
             if state == "FAILED":
                 reason = str(status.get("fail_reason") or "unknown")

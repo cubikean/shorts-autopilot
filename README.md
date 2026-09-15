@@ -79,6 +79,12 @@ envoyés **en brouillon dans ta boîte TikTok** : dans l'**application mobile**
 la **Légende TikTok** (colonne Notion) et publie. L'API ne peut pas
 écrire la légende elle-même. Maximum 5 brouillons en attente par 24 h.
 
+**Légende directement sur ton téléphone** : installe l'app **ntfy** (Android /
+iOS, gratuite, sans compte) et abonne-toi au topic `NTFY_TOPIC` de ton `.env`.
+À chaque brouillon envoyé, tu reçois la légende avec un bouton **Copier la
+légende** (Android ; sur iPhone, copie le texte depuis la notification).
+Test : `python feed.py notify-test`. Le nom du topic sert de mot de passe : ne le partage pas.
+
 1. Sur [developers.tiktok.com](https://developers.tiktok.com), connecte-toi et crée une app (**Manage apps → Connect an app**), plateforme **Desktop**.
 2. Passe en **Sandbox** (pas de revue d'app nécessaire) et ajoute les produits **Login Kit** et **Content Posting API** (laisse *Direct Post* désactivé). Scopes : `user.info.basic`, `video.upload`.
 3. **Login Kit → Desktop → Redirect URI** : `http://127.0.0.1:8765/callback/`

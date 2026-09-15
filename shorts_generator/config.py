@@ -87,6 +87,10 @@ TIKTOK_TOKEN_FILE = _env("TIKTOK_TOKEN_FILE", "tiktok_token.json")
 TIKTOK_REDIRECT_PORT = int(_env("TIKTOK_REDIRECT_PORT", "8765"))  # redirect URI http://127.0.0.1:<port>/callback/
 TIKTOK_USERNAME = _env("TIKTOK_USERNAME", "").lstrip("@")
 
+# Phone notifications (ntfy): subscribe to this secret topic in the ntfy app.
+NTFY_TOPIC = _env("NTFY_TOPIC", "")
+NTFY_SERVER = _env("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
+
 
 # VAD (Voice Activity Detection) settings for faster-whisper
 # Default threshold is 0.5; lower = more sensitive, higher = less sensitive
