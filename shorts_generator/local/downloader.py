@@ -5,6 +5,7 @@ directly off disk.
 """
 import os
 import re
+import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 from typing import Optional
@@ -83,13 +84,38 @@ def _resolve_local_path(source: str) -> Optional[str]:
     return None
 
 
+def _usable_media(path: str) -> bool:
+    """True when the file has both a video and an audio stream.
+
+    yt-dlp can leave a ~1 KB mp4 behind without raising (e.g. a Twitch VOD part it
+    couldn't fetch); transcription then fails with an obscure "tuple index out of range".
+    """
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return os.path.getsize(path) > 100_000  # no ffprobe: at least reject near-empty files
+    streams = probe.stdout.split()
+    return "video" in streams and "audio" in streams
+
+
+def _cached(stem: str) -> Optional[str]:
+    """A previous download of this stem, if usable; broken leftovers are deleted."""
+    for ext in (".mp4", ".mkv", ".webm"):
+        candidate = stem + ext
+        if os.path.exists(candidate):
+            if _usable_media(candidate):
+                return candidate
+            print(f"[download/local] discarding unusable cached file: {candidate}", flush=True)
+            os.remove(candidate)
+    return None
+
+
 def _existing_download(out_dir: str, video_id: str) -> Optional[str]:
     """Return a cached download path if we already have this YouTube id."""
-    for ext in (".mp4", ".mkv", ".webm"):
-        candidate = os.path.join(out_dir, f"source_{video_id}{ext}")
-        if os.path.exists(candidate):
-            return candidate
-    return None
+    return _cached(os.path.join(out_dir, f"source_{video_id}"))
 
 
 def download_section_local(video_url: str, start: float, end: float, name: str, fmt: str = "1080") -> str:
@@ -100,10 +126,10 @@ def download_section_local(video_url: str, start: float, end: float, name: str, 
     out_dir = LOCAL_OUTPUT_DIR
     os.makedirs(out_dir, exist_ok=True)
     stem = os.path.join(out_dir, f"source_{name}")
-    for ext in (".mp4", ".mkv", ".webm"):
-        if os.path.exists(stem + ext):
-            print(f"[download/local] reusing cached section: {stem + ext}", flush=True)
-            return stem + ext
+    cached = _cached(stem)
+    if cached:
+        print(f"[download/local] reusing cached section: {cached}", flush=True)
+        return cached
 
     print(f"[download/local] {video_url} [{start:.0f}s-{end:.0f}s] @ {fmt}p", flush=True)
     ydl_opts = {
@@ -118,11 +144,14 @@ def download_section_local(video_url: str, start: float, end: float, name: str, 
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
-    for ext in (".mp4", ".mkv", ".webm"):
-        if os.path.exists(stem + ext):
-            print(f"[download/local] ready: {stem + ext}", flush=True)
-            return stem + ext
-    raise RuntimeError(f"section download produced no file for {video_url}")
+    ready = _cached(stem)
+    if ready:
+        print(f"[download/local] ready: {ready}", flush=True)
+        return ready
+    raise RuntimeError(
+        f"section download produced no usable video for {video_url} [{start:.0f}s-{end:.0f}s] "
+        "(VOD part unavailable, muted or still processing)"
+    )
 
 
 def download_youtube_local(video_url: str, fmt: str = "1080", out_dir: Optional[str] = None) -> str:
