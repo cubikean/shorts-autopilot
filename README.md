@@ -171,6 +171,11 @@ Passe une vidéo en *Rejeté* pour qu'elle ne soit jamais traitée.
 Tu peux modifier les textes dans Notion avant de valider : c'est ce qui est publié.
 Une **Date de publication** dans le futur programme la sortie sur YouTube.
 
+**Jamais de rafale sur YouTube** : deux shorts ne deviennent jamais publics à moins de
+`YOUTUBE_MIN_GAP_MINUTES` (3 h par défaut) d'intervalle, même si plusieurs partent dans
+le même passage. Les suivants sont uploadés en privé et programmés sur les créneaux
+suivants (dernier créneau mémorisé dans `output\youtube_schedule.json`).
+
 | YouTube | Colonnes Notion |
 |---|---|
 | Titre | *Titre* (sinon *Accroche*), 100 caractères max |

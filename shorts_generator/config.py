@@ -80,6 +80,8 @@ YOUTUBE_CLIENT_SECRETS = _env("YOUTUBE_CLIENT_SECRETS", "client_secret.json")
 YOUTUBE_TOKEN_FILE = _env("YOUTUBE_TOKEN_FILE", "youtube_token.json")
 YOUTUBE_PRIVACY = _env("YOUTUBE_PRIVACY", "public")         # public / unlisted / private
 YOUTUBE_CATEGORY_ID = _env("YOUTUBE_CATEGORY_ID", "24")     # 24 Entertainment, 20 Gaming, 23 Comedy
+# Minimum time between two public releases: extra uploads are scheduled (private + publishAt).
+YOUTUBE_MIN_GAP_MINUTES = int(_env("YOUTUBE_MIN_GAP_MINUTES", "180"))
 # TikTok (inbox drafts): app credentials from developers.tiktok.com, token written by auth-tiktok.
 TIKTOK_CLIENT_KEY = _env("TIKTOK_CLIENT_KEY", "")
 TIKTOK_CLIENT_SECRET = _env("TIKTOK_CLIENT_SECRET", "")

@@ -2,17 +2,27 @@
 
 Quota: videos.insert costs 1600 of the default 10 000 units a day, i.e. about
 6 uploads a day per Google Cloud project.
+Pacing: releases are spaced by YOUTUBE_MIN_GAP_MINUTES; uploads that come in
+sooner are scheduled (private + publishAt) instead of going public at once.
 """
 import json
 import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from ..config import YOUTUBE_CATEGORY_ID, YOUTUBE_CLIENT_SECRETS, YOUTUBE_PRIVACY, YOUTUBE_TOKEN_FILE
+from ..config import (
+    LOCAL_OUTPUT_DIR,
+    YOUTUBE_CATEGORY_ID,
+    YOUTUBE_CLIENT_SECRETS,
+    YOUTUBE_MIN_GAP_MINUTES,
+    YOUTUBE_PRIVACY,
+    YOUTUBE_TOKEN_FILE,
+)
 from .base import Publisher, QuotaExceeded, ShortPost
 
+SCHEDULE_FILE = Path(LOCAL_OUTPUT_DIR) / "youtube_schedule.json"
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 RETRY_STATUSES = {500, 502, 503, 504}
 QUOTA_REASONS = {"quotaExceeded", "uploadLimitExceeded", "dailyLimitExceeded", "rateLimitExceeded"}
@@ -52,6 +62,27 @@ def _credentials():
             raise RuntimeError(f"YouTube token expired or revoked ({e}). Run `python feed.py auth-youtube` again.") from e
         path.write_text(creds.to_json(), encoding="utf-8")
     return creds
+
+
+def _release_slot(requested: Optional[datetime]) -> datetime:
+    """When the next short goes public: never sooner than YOUTUBE_MIN_GAP_MINUTES after
+    the previous release, so a batch of uploads comes out one by one instead of all at once."""
+    now = datetime.now(timezone.utc)
+    candidates = [now]
+    if requested:
+        candidates.append(requested.astimezone(timezone.utc))
+    try:
+        last = datetime.fromisoformat(json.loads(SCHEDULE_FILE.read_text(encoding="utf-8"))["last_release"])
+        candidates.append(last + timedelta(minutes=YOUTUBE_MIN_GAP_MINUTES))
+    except (OSError, ValueError, KeyError):
+        pass
+    return max(candidates)
+
+
+def _remember_release(release: datetime) -> None:
+    # Only one publish run at a time (feed.py lock), so this file never races.
+    SCHEDULE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SCHEDULE_FILE.write_text(json.dumps({"last_release": release.isoformat()}), encoding="utf-8")
 
 
 def _clean(text: str) -> str:
@@ -96,9 +127,12 @@ class YouTubePublisher(Publisher):
         description = _truncate_bytes(_clean("\n\n".join(p for p in parts if p)), 5000)
 
         status = {"privacyStatus": YOUTUBE_PRIVACY, "selfDeclaredMadeForKids": False}
-        if post.publish_at and post.publish_at > datetime.now(timezone.utc):
-            # Scheduled release: YouTube requires the video to be private until publishAt.
-            status.update(privacyStatus="private", publishAt=post.publish_at.astimezone(timezone.utc).isoformat())
+        release = None
+        if YOUTUBE_PRIVACY == "public":
+            release = _release_slot(post.publish_at)
+            if release > datetime.now(timezone.utc) + timedelta(minutes=2):
+                # Scheduled release: YouTube requires the video to be private until publishAt.
+                status.update(privacyStatus="private", publishAt=release.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
         body = {
             "snippet": {
@@ -134,4 +168,9 @@ class YouTubePublisher(Publisher):
                 raise RuntimeError(f"YouTube upload failed after {MAX_RETRIES} retries: {error}")
             time.sleep(min(60, 2 ** attempt) + random.random())
 
+        if release:
+            _remember_release(release)
+            if "publishAt" in status:
+                local = release.astimezone().strftime("%d/%m %H:%M")
+                print(f"[publish/youtube]   uploaded private, goes public on {local}", flush=True)
         return f"https://youtube.com/shorts/{response['id']}"
