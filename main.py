@@ -32,6 +32,18 @@ def main() -> int:
     parser.add_argument("--format", default="720", help="Source download resolution: 360 / 480 / 720 / 1080 (default: 720)")
     parser.add_argument("--language", default=None, help="Force Whisper language code, e.g. 'en' (default: auto-detect)")
     parser.add_argument("--output-json", default=None, help="Write the full result JSON to this path")
+    parser.add_argument(
+        "--no-subtitles",
+        action="store_true",
+        help="Local mode: don't burn word-by-word captions into the clips (on by default).",
+    )
+    parser.add_argument(
+        "--layout",
+        choices=["auto", "single", "stack"],
+        default="auto",
+        help="Local mode: auto (stack a detected stream webcam above the content), "
+             "single (face-tracked crop only) or stack (force webcam-on-top for any steady face).",
+    )
     args = parser.parse_args()
 
     try:
@@ -42,6 +54,8 @@ def main() -> int:
             download_format=args.format,
             language=args.language,
             mode=args.mode,
+            subtitles=not args.no_subtitles,
+            layout=args.layout,
         )
     except Exception as e:
         print(f"\nFAILED: {e}", file=sys.stderr)
@@ -56,6 +70,10 @@ def main() -> int:
         print(f"\n#{i}  score={s.get('score')}  {s.get('start_time'):.1f}s → {s.get('end_time'):.1f}s")
         print(f"     title:  {s.get('title')}")
         print(f"     hook:   {s.get('hook_sentence')}")
+        if s.get("description"):
+            print(f"     desc:   {s['description']}")
+        if s.get("hashtags"):
+            print(f"     tags:   {' '.join(s['hashtags'])}")
         if s.get("clip_url"):
             print(f"     clip:   {s['clip_url']}")
         else:

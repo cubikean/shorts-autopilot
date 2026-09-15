@@ -6,9 +6,13 @@ Two modes:
   * mode="local"            — yt-dlp + faster-whisper + OpenAI or Gemini + ffmpeg/opencv.
                               Self-hosted, LLM_PROVIDER selects OpenAI or Gemini.
 """
+import json
+import os
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from .clipper import crop_highlights
+from .config import LOCAL_OUTPUT_DIR
 from .downloader import download_youtube
 from .highlights import call_muapi_llm, get_highlights
 from .transcriber import transcribe
@@ -20,6 +24,9 @@ def _run_local(
     aspect_ratio: str,
     download_format: str,
     language: Optional[str],
+    subtitles: bool = True,
+    layout: str = "auto",
+    out_dir: Optional[str] = None,
 ) -> Dict:
     from .local.clipper import crop_highlights_local
     from .local.downloader import download_youtube_local
@@ -42,7 +49,28 @@ def _run_local(
     top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
     print(f"[pipeline/local] cropping {len(top)} of {len(all_highlights)} candidates", flush=True)
 
-    shorts = crop_highlights_local(source_path, top, aspect_ratio=aspect_ratio)
+    # One folder per source so runs never overwrite each other's short_XX.mp4.
+    out_dir = out_dir or os.path.join(LOCAL_OUTPUT_DIR, Path(source_path).stem.removeprefix("source_"))
+    shorts = crop_highlights_local(
+        source_path,
+        top,
+        aspect_ratio=aspect_ratio,
+        out_dir=out_dir,
+        transcript=transcript if subtitles else None,
+        layout=layout,
+    )
+
+    # Publishing metadata next to each mp4 (short_01.mp4 → short_01.json).
+    for short in shorts:
+        if short.get("clip_url"):
+            meta = {key: short.get(key) for key in (
+                "title", "description", "hashtags", "hook_sentence", "virality_reason",
+                "score", "start_time", "end_time",
+            )}
+            meta["source"] = youtube_url
+            Path(short["clip_url"]).with_suffix(".json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
 
     return {
         "mode": "local",
@@ -94,6 +122,9 @@ def generate_shorts(
     download_format: str = "720",
     language: Optional[str] = None,
     mode: str = "api",
+    subtitles: bool = True,
+    layout: str = "auto",
+    out_dir: Optional[str] = None,
 ) -> Dict:
     """Run the full pipeline and return a structured result.
 
@@ -105,6 +136,13 @@ def generate_shorts(
         language: ISO-639-1 to force Whisper language detection.
         mode: "api" (default, MuAPI) or "local" (yt-dlp + faster-whisper +
             OpenAI or Gemini + ffmpeg).
+        subtitles: burn word-by-word captions, in the spoken language, into
+            each clip (local mode only).
+        layout: "auto" stacks a detected stream webcam above the content,
+            "stack" forces it for any steady face, "single" always uses a
+            face-tracked crop (local mode only).
+        out_dir: where clips + metadata JSON go (local mode; default
+            LOCAL_OUTPUT_DIR/<source id>/).
 
     Returns:
         {
@@ -117,7 +155,7 @@ def generate_shorts(
     """
     mode = (mode or "api").lower()
     if mode == "local":
-        return _run_local(youtube_url, num_clips, aspect_ratio, download_format, language)
+        return _run_local(youtube_url, num_clips, aspect_ratio, download_format, language, subtitles, layout, out_dir)
     if mode == "api":
         return _run_api(youtube_url, num_clips, aspect_ratio, download_format, language)
     raise ValueError(f"Unknown mode: {mode!r}. Use 'api' or 'local'.")

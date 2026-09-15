@@ -1,0 +1,10 @@
+{
+  "_note": "Only list channels you are allowed to clip (clipping programs, your own channels, written permission). Copy this file to sources.json.",
+  "youtube": [
+    {"handle": "@channel_handle"},
+    {"channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx"}
+  ],
+  "twitch": [
+    {"login": "twitch_login"}
+  ]
+}

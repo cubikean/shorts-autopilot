@@ -1,16 +1,20 @@
-"""Local clipping: ffmpeg subclip + OpenCV face-aware vertical crop.
+"""Local clipping: ffmpeg subclip + face-aware vertical crop.
 
 Two stages per highlight:
   1. Cut the source video to [start, end] with ffmpeg (re-encoded, audio kept).
-  2. Reframe the cut to the target aspect ratio. For 9:16 we slide a vertical
-     window horizontally across the frame to keep faces centred (Haar
-     cascade — same approach as the original repo, no external models).
+  2. Reframe the cut to the target aspect ratio. A stable crop path is planned
+     over the whole clip first (YuNet faces, shot cuts, locked or dead-zone
+     camera — see reframe.py), then frames are piped into a single x264 encode.
 """
 import os
 import subprocess
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
+
+import numpy as np
 
 from ..config import LOCAL_OUTPUT_DIR
+from .reframe import STACK_TOP_SHARE, analyse, plan_crop_path, plan_layout
+from .subtitles import clip_words, write_ass
 
 
 def _ratio(aspect_ratio: str) -> float:
@@ -37,8 +41,19 @@ def _cut_subclip(source_path: str, start: float, end: float, out_path: str) -> s
     return out_path
 
 
-def _reframe_vertical(in_path: str, out_path: str, aspect_ratio: str) -> str:
-    """Crop the cut clip to the target aspect ratio, tracking faces if possible."""
+def _reframe_vertical(
+    in_path: str,
+    out_path: str,
+    aspect_ratio: str,
+    words: Optional[List[Dict]] = None,
+    layout: str = "auto",
+) -> str:
+    """Crop the cut clip to the target aspect ratio, tracking faces if possible.
+
+    For tall outputs, `layout` "auto" stacks a detected stream webcam on top of
+    the content ("stack" forces it for any steady face, "single" disables it).
+    When `words` is given, captions are burned in during the final encode.
+    """
     try:
         import cv2  # type: ignore
     except ImportError as e:
@@ -55,6 +70,7 @@ def _reframe_vertical(in_path: str, out_path: str, aspect_ratio: str) -> str:
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Compute the largest crop that fits inside the frame at the target ratio.
     if target_ratio < src_w / src_h:
@@ -66,59 +82,105 @@ def _reframe_vertical(in_path: str, out_path: str, aspect_ratio: str) -> str:
     crop_w = max(2, crop_w - (crop_w % 2))
     crop_h = max(2, crop_h - (crop_h % 2))
 
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
-    silent_path = out_path + ".silent.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(silent_path, fourcc, fps, (crop_w, crop_h))
-
-    last_center: Optional[Tuple[int, int]] = None
-    smoothing = 0.15  # how aggressively to chase a new face position
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
-        if len(faces) > 0:
-            # Pick the largest face — usually the speaker.
-            x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-            cx = x + w // 2
-            cy = y + h // 2
-            if last_center is None:
-                last_center = (cx, cy)
-            else:
-                lx, ly = last_center
-                last_center = (
-                    int(lx + (cx - lx) * smoothing),
-                    int(ly + (cy - ly) * smoothing),
-                )
-        if last_center is None:
-            last_center = (src_w // 2, src_h // 2)
-
-        cx, cy = last_center
-        x0 = max(0, min(src_w - crop_w, cx - crop_w // 2))
-        y0 = max(0, min(src_h - crop_h, cy - crop_h // 2))
-        cropped = frame[y0:y0 + crop_h, x0:x0 + crop_w]
-        writer.write(cropped)
-
     cap.release()
-    writer.release()
 
-    # Mux audio from the cut clip back onto the silent reframed video.
+    # Pass 1: plan the whole crop path with hindsight (see reframe.py).
+    analysis = analyse(cv2, in_path)
+    xs, ys, stats = plan_crop_path(analysis, crop_w, crop_h)
+    print(
+        f"[reframe] {stats['detector']}: faces in {stats['face_rate']:.0%} of samples, "
+        f"{stats['shots']} shots ({stats['locked']} locked, {stats['faceless']} without face)",
+        flush=True,
+    )
+
+    # Stacked layout (webcam panel over a centre crop of the content), rendered
+    # at a sharper 9:16 size so the small webcam overlay isn't a thumbnail.
+    out_w, out_h, top_h = crop_w, crop_h, 0
+    segments = [(0, len(xs), None)]
+    if target_ratio < 0.8 and layout != "single":
+        stack_w = min(1080, src_h - src_h % 2)
+        stack_h = round(stack_w / target_ratio)
+        stack_h -= stack_h % 2
+        top_h = round(stack_h * STACK_TOP_SHARE)
+        top_h -= top_h % 2
+        planned = plan_layout(analysis, top_aspect=stack_w / top_h, mode=layout)
+        if any(box for _, _, box in planned):
+            out_w, out_h, segments = stack_w, stack_h, planned
+            stacked_frames = sum(end - start for start, end, box in planned if box)
+            print(
+                f"[layout] webcam stacked on top for {stacked_frames / max(1, len(xs)):.0%} of the clip "
+                f"({len(planned)} segment{'s' if len(planned) > 1 else ''})",
+                flush=True,
+            )
+    stacked = out_h != crop_h or out_w != crop_w
+    bottom_h = out_h - top_h
+    content_w = min(src_w, round(src_h * out_w / max(1, bottom_h)))
+    content_h = src_h if content_w < src_w else round(src_w * bottom_h / out_w)
+    content_x, content_y = (src_w - content_w) // 2, (src_h - content_h) // 2
+    segment_of = np.zeros(len(xs), dtype=int)
+    for i, (start, end, _) in enumerate(segments):
+        segment_of[start:end] = i
+
+    # Pass 2: pipe composed frames straight into one x264 encode that also muxes
+    # the audio and burns captions (no lossy mp4v intermediate).
+    vf_args: List[str] = []
+    ass_path = None
+    if words:
+        ass_path = os.path.abspath(out_path + ".ass")
+        # Stacked: captions ride the seam between webcam and content.
+        write_ass(words, out_w, out_h, frame_count / fps, ass_path, position=top_h / out_h if stacked else None)
+        # Run ffmpeg from the .ass folder and pass a bare filename: Windows drive
+        # colons would otherwise need filter-graph escaping.
+        vf_args = ["-vf", f"ass={os.path.basename(ass_path)}"]
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
-        "-i", silent_path,
-        "-i", in_path,
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "128k",
+        "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{out_w}x{out_h}", "-r", f"{fps:.6f}",
+        "-i", "-",
+        "-i", os.path.abspath(in_path),
         "-map", "0:v:0", "-map", "1:a:0?",
+        *vf_args,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
         "-shortest",
-        out_path,
+        os.path.abspath(out_path),
     ]
-    subprocess.run(cmd, check=True)
-    os.remove(silent_path)
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, cwd=os.path.dirname(ass_path) if ass_path else None)
+    # Always release the capture: on Windows an open handle blocks deleting the
+    # cut file, and that error would mask whatever actually went wrong here.
+    cap = cv2.VideoCapture(in_path)
+    try:
+        last = len(xs) - 1
+        index = 0
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            i = min(index, last)
+            box = segments[segment_of[i]][2]
+            if box:
+                bx, by, bw, bh = box
+                top = cv2.resize(frame[by:by + bh, bx:bx + bw], (out_w, top_h), interpolation=cv2.INTER_CUBIC)
+                content = frame[content_y:content_y + content_h, content_x:content_x + content_w]
+                bottom = cv2.resize(content, (out_w, bottom_h), interpolation=cv2.INTER_LINEAR)
+                composed = np.vstack((top, bottom))
+            else:
+                x0, y0 = xs[i], ys[i]
+                composed = frame[y0:y0 + crop_h, x0:x0 + crop_w]
+                if stacked:
+                    composed = cv2.resize(composed, (out_w, out_h), interpolation=cv2.INTER_CUBIC)
+            proc.stdin.write(np.ascontiguousarray(composed).tobytes())
+            index += 1
+        proc.stdin.close()
+        if proc.wait() != 0:
+            raise RuntimeError(f"ffmpeg encode failed [{proc.returncode}]")
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        raise
+    finally:
+        cap.release()
+        if ass_path and os.path.exists(ass_path):
+            os.remove(ass_path)
     return out_path
 
 
@@ -128,12 +190,18 @@ def crop_clip_local(
     end_time: float,
     aspect_ratio: str,
     out_path: str,
+    transcript: Optional[Dict] = None,
+    layout: str = "auto",
 ) -> str:
-    """Cut + reframe one highlight, returning the local mp4 path."""
+    """Cut + reframe one highlight, returning the local mp4 path.
+
+    Pass the source `transcript` to burn in word-by-word captions.
+    """
     cut_path = out_path + ".cut.mp4"
+    words = clip_words(transcript, start_time, end_time) if transcript else None
     try:
         _cut_subclip(source_path, start_time, end_time, cut_path)
-        _reframe_vertical(cut_path, out_path, aspect_ratio)
+        _reframe_vertical(cut_path, out_path, aspect_ratio, words=words, layout=layout)
     finally:
         if os.path.exists(cut_path):
             os.remove(cut_path)
@@ -145,6 +213,8 @@ def crop_highlights_local(
     highlights: List[Dict],
     aspect_ratio: str = "9:16",
     out_dir: Optional[str] = None,
+    transcript: Optional[Dict] = None,
+    layout: str = "auto",
 ) -> List[Dict]:
     out_dir = out_dir or LOCAL_OUTPUT_DIR
     os.makedirs(out_dir, exist_ok=True)
@@ -159,6 +229,8 @@ def crop_highlights_local(
                 float(h["end_time"]),
                 aspect_ratio,
                 out_path,
+                transcript=transcript,
+                layout=layout,
             )
             results.append({**h, "clip_url": out_path})
         except Exception as e:

@@ -1,21 +1,37 @@
-"""Local transcription via faster-whisper.
+"""Local transcription via faster-whisper, adapted to the spoken language.
 
 Reads a local media file and returns the same shape the highlight generator
-expects: {duration, segments[start, end, text]}.
+expects: {duration, language, model, segments[start, end, text, words[start, end, word]]}.
+Word timestamps drive the burned-in captions.
+
+Language handling: the language is detected on the first ~90 s, the Whisper
+model is picked for that language (LOCAL_WHISPER_MODELS), and transcription
+runs with the language forced so Whisper never drifts into another language
+mid-video. Runs on the NVIDIA GPU when available (no torch needed), else CPU.
 """
+import glob
+import json
 import os
-import re
+import sysconfig
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
-from ..config import LOCAL_OUTPUT_DIR, LOCAL_WHISPER_DEVICE, LOCAL_WHISPER_MODEL
+from ..config import (
+    LOCAL_OUTPUT_DIR,
+    LOCAL_WHISPER_DEVICE,
+    LOCAL_WHISPER_MODEL,
+    LOCAL_WHISPER_MODELS,
+)
+
+DETECTION_SEGMENTS = 3  # 3 × 30 s windows: skips past a music intro before deciding
+_MODELS: Dict[Tuple[str, str], object] = {}  # loaded once per process (feed runs many videos)
 
 
-def _transcript_cache_path(media_path: str) -> Path:
-    """Return the .srt cache path for a media file."""
+def _transcript_cache_path(media_path: str, suffix: str = ".srt") -> Path:
+    """Return the cache path for a media file (.json is the real cache, .srt is for humans)."""
     cache_dir = Path(LOCAL_OUTPUT_DIR)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir / (Path(media_path).stem + ".srt")
+    return cache_dir / (Path(media_path).stem + suffix)
 
 
 def _format_srt_timestamp(seconds: float) -> str:
@@ -27,14 +43,6 @@ def _format_srt_timestamp(seconds: float) -> str:
     m = total_m % 60
     h = total_m // 60
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-
-def _parse_srt_timestamp(value: str) -> float:
-    match = re.fullmatch(r"(\d{2}):(\d{2}):(\d{2}),(\d{3})", value.strip())
-    if not match:
-        raise ValueError(f"Invalid SRT timestamp: {value!r}")
-    hours, minutes, seconds, millis = map(int, match.groups())
-    return hours * 3600 + minutes * 60 + seconds + (millis / 1000.0)
 
 
 def _write_srt_cache(media_path: str, transcript: Dict) -> Path:
@@ -53,96 +61,132 @@ def _write_srt_cache(media_path: str, transcript: Dict) -> Path:
     return cache_path
 
 
-def _load_srt_cache(cache_path: Path) -> Dict:
-    content = cache_path.read_text(encoding="utf-8-sig").strip()
-    if not content:
-        return {"duration": 0.0, "segments": []}
+def _load_json_cache(cache_path: Path) -> Optional[Dict]:
+    """Return the cached transcript, or None if it is unreadable or empty."""
+    try:
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not cached.get("segments") or float(cached.get("duration") or 0.0) <= 0.0:
+        return None
+    return cached
 
-    segments = []
-    for block in re.split(r"\n\s*\n", content):
-        lines = [line.strip("\ufeff") for line in block.splitlines() if line.strip()]
-        if not lines:
-            continue
-        if "-->" not in lines[0] and len(lines) > 1 and "-->" in lines[1]:
-            lines = lines[1:]
-        if not lines or "-->" not in lines[0]:
-            continue
-        start_raw, end_raw = [part.strip() for part in lines[0].split("-->", 1)]
-        text = "\n".join(lines[1:]).strip()
-        segments.append(
-            {
-                "start": _parse_srt_timestamp(start_raw),
-                "end": _parse_srt_timestamp(end_raw),
-                "text": text,
-            }
+
+def model_for_language(language: Optional[str]) -> str:
+    """Whisper model for a language: a forced LOCAL_WHISPER_MODEL, else the per-language table."""
+    if LOCAL_WHISPER_MODEL != "auto":
+        return LOCAL_WHISPER_MODEL
+    return LOCAL_WHISPER_MODELS.get(language or "") or LOCAL_WHISPER_MODELS.get("*") or "large-v3-turbo"
+
+
+def _cuda_ready() -> bool:
+    """True when an NVIDIA GPU and the cuBLAS/cuDNN runtime DLLs are usable.
+
+    The DLLs come from the nvidia-cublas-cu12 / nvidia-cudnn-cu12 wheels; they
+    are registered explicitly because Windows doesn't search site-packages.
+    Checked up front: a missing cuDNN aborts the process mid-transcription
+    instead of raising.
+    """
+    try:
+        import ctranslate2  # type: ignore
+
+        if ctranslate2.get_cuda_device_count() == 0:
+            return False
+    except Exception:
+        return False
+    if os.name != "nt":
+        return True
+
+    import ctypes
+
+    for bin_dir in glob.glob(os.path.join(sysconfig.get_paths()["purelib"], "nvidia", "*", "bin")):
+        os.add_dll_directory(bin_dir)
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    try:
+        ctypes.WinDLL("cublas64_12.dll")
+        ctypes.WinDLL("cudnn64_9.dll")
+        return True
+    except OSError:
+        print(
+            "[transcribe/local] NVIDIA GPU found but cuBLAS/cuDNN are missing; using CPU. "
+            "Install them with: pip install nvidia-cublas-cu12 \"nvidia-cudnn-cu12==9.*\"",
+            flush=True,
         )
-
-    duration = segments[-1]["end"] if segments else 0.0
-    return {"duration": duration, "segments": segments}
+        return False
 
 
 def _resolve_device() -> str:
     if LOCAL_WHISPER_DEVICE != "auto":
         return LOCAL_WHISPER_DEVICE
-    try:
-        import torch  # type: ignore
-        if torch.cuda.is_available():
-            # Test that CUDA actually works (catches missing cuBLAS/cuDNN libs)
-            torch.zeros(1, device="cuda")
-            return "cuda"
-    except (ImportError, OSError, RuntimeError):
-        pass
-    return "cpu"
+    return "cuda" if _cuda_ready() else "cpu"
+
+
+def _load_model(name: str, device: str):
+    key = (name, device)
+    if key not in _MODELS:
+        from faster_whisper import WhisperModel  # type: ignore
+
+        compute_type = "float16" if device == "cuda" else "int8"
+        print(f"[transcribe/local] loading faster-whisper {name} on {device} ({compute_type})", flush=True)
+        _MODELS[key] = WhisperModel(name, device=device, compute_type=compute_type)
+    return _MODELS[key]
 
 
 def transcribe_local(media_path: str, language: Optional[str] = None) -> Dict:
-    """Run faster-whisper on a local file path, caching the result as .srt."""
-    cache_path = _transcript_cache_path(media_path)
-    if cache_path.exists():
-        source_mtime = os.path.getmtime(media_path)
-        cache_mtime = cache_path.stat().st_mtime
-        if cache_mtime >= source_mtime:
-            print(f"[transcribe/local] reusing cached transcript: {cache_path}", flush=True)
-            cached = _load_srt_cache(cache_path)
-            # Treat empty cache as invalid (likely from a failed/partial run) — delete and re-transcribe
-            if not cached["segments"] or cached["duration"] <= 0.0:
-                print(f"[transcribe/local] cache is empty/invalid, deleting: {cache_path}", flush=True)
-                cache_path.unlink(missing_ok=True)
-            else:
-                print(
-                    f"[transcribe/local] {len(cached['segments'])} cached segments, "
-                    f"{cached['duration']:.0f}s of audio",
-                    flush=True,
-                )
-                return cached
+    """Run faster-whisper (with word timestamps) on a local file, caching the result as .json."""
+    cache_path = _transcript_cache_path(media_path, ".json")
+    if cache_path.exists() and cache_path.stat().st_mtime >= os.path.getmtime(media_path):
+        cached = _load_json_cache(cache_path)
+        # Stale if the forced language differs, or if it was made with another model than
+        # the one we'd pick now for its language (e.g. an old "base" transcript).
+        if (
+            cached
+            and (not language or cached.get("language") == language)
+            and cached.get("model") == model_for_language(cached.get("language"))
+        ):
+            print(
+                f"[transcribe/local] reusing cached transcript: {cache_path} "
+                f"({len(cached['segments'])} segments, {cached['duration']:.0f}s, "
+                f"lang={cached.get('language')}, model={cached.get('model')})",
+                flush=True,
+            )
+            return cached
+        print(f"[transcribe/local] cache is stale or invalid, re-transcribing: {cache_path}", flush=True)
 
     try:
-        from faster_whisper import WhisperModel  # type: ignore
+        from faster_whisper import decode_audio  # type: ignore
     except ImportError as e:
         raise RuntimeError(
             "faster-whisper is required for --mode local. Install it with:\n"
             "    pip install -r requirements-local.txt"
         ) from e
 
-    device = _resolve_device()
-    compute_type = "float16" if device == "cuda" else "int8"
-    print(f"[transcribe/local] faster-whisper model={LOCAL_WHISPER_MODEL} device={device}", flush=True)
-
     from ..config import LOCAL_WHISPER_VAD_FILTER, LOCAL_WHISPER_VAD_PARAMETERS
 
-    model = WhisperModel(LOCAL_WHISPER_MODEL, device=device, compute_type=compute_type)
+    device = _resolve_device()
+    audio = decode_audio(media_path)
+
+    if language:
+        print(f"[transcribe/local] language forced: {language}", flush=True)
+    else:
+        # Detect with the catch-all multilingual model; it's also the one used for most languages.
+        detector = _load_model(model_for_language("*"), device)
+        language, probability, _ = detector.detect_language(audio, language_detection_segments=DETECTION_SEGMENTS)
+        print(f"[transcribe/local] detected language: {language} ({probability:.2f})", flush=True)
+
+    model_name = model_for_language(language)
+    model = _load_model(model_name, device)
 
     transcribe_kwargs = {
-        "audio": media_path,
+        "audio": audio,
         "language": language,
         "beam_size": 5,
         "condition_on_previous_text": False,
+        "word_timestamps": True,
+        "vad_filter": LOCAL_WHISPER_VAD_FILTER,
     }
     if LOCAL_WHISPER_VAD_FILTER:
-        transcribe_kwargs["vad_filter"] = True
         transcribe_kwargs["vad_parameters"] = LOCAL_WHISPER_VAD_PARAMETERS
-    else:
-        transcribe_kwargs["vad_filter"] = False
 
     segments_iter, info = model.transcribe(**transcribe_kwargs)
 
@@ -152,11 +196,20 @@ def transcribe_local(media_path: str, language: Optional[str] = None) -> Dict:
             "start": float(s.start),
             "end": float(s.end),
             "text": (s.text or "").strip(),
+            "words": [
+                {"start": float(w.start), "end": float(w.end), "word": w.word}
+                for w in (s.words or [])
+            ],
         })
 
     duration = float(getattr(info, "duration", 0.0)) or (segments[-1]["end"] if segments else 0.0)
-    print(f"[transcribe/local] {len(segments)} segments, {duration:.0f}s of audio", flush=True)
-    transcript = {"duration": duration, "segments": segments}
-    cache_path = _write_srt_cache(media_path, transcript)
-    print(f"[transcribe/local] wrote cache: {cache_path}", flush=True)
+    print(
+        f"[transcribe/local] {len(segments)} segments, {duration:.0f}s of audio, lang={language}, model={model_name}",
+        flush=True,
+    )
+    transcript = {"duration": duration, "language": language, "model": model_name, "segments": segments}
+    if segments:
+        cache_path.write_text(json.dumps(transcript, ensure_ascii=False), encoding="utf-8")
+        _write_srt_cache(media_path, transcript)
+        print(f"[transcribe/local] wrote cache: {cache_path}", flush=True)
     return transcript

@@ -100,8 +100,9 @@ Don't want to self-host? The [AI Clipping API](https://muapi.ai/playground/ai-cl
    OPENAI_MODEL=gpt-4o-mini          # optional, default gpt-4o-mini
    GEMINI_API_KEY=your_gemini_key_here
    GEMINI_MODEL=gemini-2.5-flash      # optional, default gemini-2.5-flash
-   LOCAL_WHISPER_MODEL=base          # tiny / base / small / medium / large-v3
-   LOCAL_WHISPER_DEVICE=auto         # auto / cpu / cuda
+   LOCAL_WHISPER_MODEL=auto          # auto = detect language, then pick from LOCAL_WHISPER_MODELS; or force e.g. base
+   LOCAL_WHISPER_MODELS=en=large-v3,*=large-v3-turbo
+   LOCAL_WHISPER_DEVICE=auto         # auto (NVIDIA GPU if usable, no torch needed) / cpu / cuda
    LOCAL_OUTPUT_DIR=output           # where local mp4s land
    ```
 
@@ -171,6 +172,93 @@ Create a `urls.txt` file with one URL per line, then:
 xargs -a urls.txt -I{} python main.py "{}"
 ```
 
+### Daily feed (Notion queue)
+
+`feed.py` turns the generator into a daily pipeline: it watches a whitelist of
+YouTube and Twitch channels, queues fresh viral videos in a Notion database,
+and renders shorts — with a title, description and hashtags — from that queue.
+
+> Only whitelist channels you are allowed to clip (clipping programs, your own
+> channels, written permission). Reuploading other creators' videos without
+> permission leads to Content ID claims and "reused content" demonetisation.
+
+1. **Notion** — create an internal integration at
+   <https://www.notion.so/my-integrations>, put its token in `NOTION_TOKEN`,
+   share an empty page with the integration, then run
+   `python feed.py setup-notion "<page URL>"` and copy the two database ids it
+   prints into `.env`.
+2. **Twitch (optional)** — create an app at <https://dev.twitch.tv/console/apps>
+   and set `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`.
+3. **Sources** — copy `sources.example.json` to `sources.json` and list channels
+   (`{"handle": "@name"}` or `{"channel_id": "UC…"}` for YouTube, `{"login": "name"}` for Twitch).
+4. **Run**
+
+```bash
+python feed.py discover --dry-run   # preview candidates, nothing written
+python feed.py discover             # queue new videos in Notion ("À traiter")
+python feed.py process --limit 3    # render shorts for the best queued videos
+```
+
+How candidates are found:
+
+| Platform | Source | Score |
+|---|---|---|
+| YouTube | public channel RSS feed (no API key) + `yt-dlp` for duration/live status | views per hour ÷ the channel's median views per hour; queued from `FEED_MIN_SCORE` (1.5) |
+| Twitch | Helix API: the channel's most-viewed clips of the last 24 h, merged into moments | moment clip views ÷ the channel's median moment that day |
+
+Sources must last between `FEED_MIN_DURATION_MINUTES` (1) and
+`FEED_MAX_DURATION_MINUTES` (120) — the video for YouTube, the whole VOD for
+Twitch; anything outside is skipped with the reason in the log. Videos that
+are already YouTube Shorts are never queued, whatever their length.
+
+Twitch moments only download a window around the clipped moment (not the whole
+VOD) and yield one short each. Every short gets a row in the Notion **Shorts**
+database (title, description with source credit, hashtags, file path,
+"À publier") and a `short_XX.json` next to the mp4.
+
+To run it every day on Windows, register the scheduled tasks (discover at 07:00,
+process at 01:00, publish every 4 h from 09:00; logs in `output/logs/`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1
+```
+
+### Publishing (YouTube)
+
+Review the shorts in Notion and set **Publication** to **Validé**: `feed.py publish`
+uploads them and fills the platform's URL column, then sets **Publié**. Failures
+set **Erreur** with the reason in *Erreur publication* (set *Validé* again to
+retry). A **Date de publication** in the future schedules the release on YouTube.
+
+| YouTube field | Notion columns |
+|---|---|
+| Title | *Titre* (fallback *Accroche*), 100 chars max |
+| Description | « *Accroche* » + *Description* (with source credit) + *Hashtags* |
+| Tags | *Hashtags* without `#` |
+
+1. **Google Cloud** — in a project, enable *YouTube Data API v3*; configure the
+   OAuth consent screen (External) and **publish it to "In production"** (in
+   "Testing" the token expires after 7 days); create an OAuth client of type
+   *Desktop app* and save its JSON as `client_secret.json` at the repo root.
+2. **Once** — `pip install -r requirements-local.txt`, then:
+
+```bash
+python feed.py setup-publish   # adds Validé/Erreur, URL and date columns to the Shorts database
+python feed.py auth-youtube    # browser consent: pick the channel to upload to
+python feed.py publish --dry-run
+python feed.py publish         # PUBLISH_MAX_PER_RUN shorts (default 1)
+```
+
+> **Unaudited API projects** created after July 2020 have every upload locked
+> to *private* by YouTube, whatever `YOUTUBE_PRIVACY` says. Request the
+> [YouTube API audit](https://support.google.com/youtube/contact/yt_api_form)
+> to publish publicly, or switch the videos to public in YouTube Studio meanwhile.
+> The default quota (10 000 units/day) allows about 6 uploads a day; when it
+> runs out the run stops and the remaining shorts wait for the next run.
+
+Platforms are pluggable (`shorts_generator/publish/`): each one is a
+`Publisher` plus a URL column in Notion, listed in `PUBLISH_PLATFORMS`.
+
 ### CLI flags
 
 | Flag | Default | Notes |
@@ -181,6 +269,8 @@ xargs -a urls.txt -I{} python main.py "{}"
 | `--format` | `720` | Source download resolution: `360` / `480` / `720` / `1080` |
 | `--language` | auto | Force Whisper language code (e.g. `en`) |
 | `--output-json` | — | Dump the full result (transcript + all candidates) to a file |
+| `--no-subtitles` | off | Local mode: skip the burned-in word-by-word captions |
+| `--layout` | `auto` | Local mode: `auto` stacks a detected stream webcam above the content, `single` face-tracked crop only, `stack` forces webcam-on-top |
 
 ### API mode vs Local mode
 

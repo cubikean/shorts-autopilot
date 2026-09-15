@@ -6,3 +6,5 @@ venv/
 output/
 *.mp4
 .DS_Store
+client_secret*.json
+youtube_token.json

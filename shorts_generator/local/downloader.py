@@ -92,6 +92,39 @@ def _existing_download(out_dir: str, video_id: str) -> Optional[str]:
     return None
 
 
+def download_section_local(video_url: str, start: float, end: float, name: str, fmt: str = "720") -> str:
+    """Download only [start, end] seconds of a video (e.g. a moment in a long Twitch VOD)."""
+    yt_dlp = _import_ytdlp()
+    from yt_dlp.utils import download_range_func  # type: ignore
+
+    out_dir = LOCAL_OUTPUT_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    stem = os.path.join(out_dir, f"source_{name}")
+    for ext in (".mp4", ".mkv", ".webm"):
+        if os.path.exists(stem + ext):
+            print(f"[download/local] reusing cached section: {stem + ext}", flush=True)
+            return stem + ext
+
+    print(f"[download/local] {video_url} [{start:.0f}s-{end:.0f}s] @ {fmt}p", flush=True)
+    ydl_opts = {
+        "format": _format_for(fmt),
+        "outtmpl": stem + ".%(ext)s",
+        "merge_output_format": "mp4",
+        "download_ranges": download_range_func(None, [(start, end)]),
+        "force_keyframes_at_cuts": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([video_url])
+    for ext in (".mp4", ".mkv", ".webm"):
+        if os.path.exists(stem + ext):
+            print(f"[download/local] ready: {stem + ext}", flush=True)
+            return stem + ext
+    raise RuntimeError(f"section download produced no file for {video_url}")
+
+
 def download_youtube_local(video_url: str, fmt: str = "720", out_dir: Optional[str] = None) -> str:
     """Download a remote URL or return a local file path unchanged."""
     local_path = _resolve_local_path(video_url)
