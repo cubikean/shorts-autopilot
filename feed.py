@@ -11,7 +11,10 @@ Usage:
     python feed.py publish [--limit 1] [--platform youtube] [--dry-run]
 """
 import argparse
+import os
 import sys
+from contextlib import contextmanager
+from pathlib import Path
 
 # Windows consoles default to 'charmap'; keep Unicode titles printable.
 if hasattr(sys.stdout, "reconfigure"):
@@ -19,7 +22,57 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from shorts_generator.config import FEED_MAX_PER_RUN, NOTION_SHORTS_DB, NOTION_TOKEN, PUBLISH_MAX_PER_RUN  # noqa: E402
+from shorts_generator.config import (  # noqa: E402
+    FEED_MAX_PER_RUN,
+    LOCAL_OUTPUT_DIR,
+    NOTION_SHORTS_DB,
+    NOTION_TOKEN,
+    PUBLISH_MAX_PER_RUN,
+)
+
+LOCK_DIR = Path(LOCAL_OUTPUT_DIR) / "locks"
+
+
+class AlreadyRunning(Exception):
+    pass
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        # os.kill(pid, 0) would terminate the process on Windows: query it instead.
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+@contextmanager
+def single_run(command: str):
+    """One `feed.py <command>` at a time: a manual run and the scheduled task must not overlap
+    (two publish runs could upload the same short; process would requeue a video mid-render)."""
+    LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    lock = LOCK_DIR / f"{command}.lock"
+    try:
+        pid = int(lock.read_text().strip())
+    except (OSError, ValueError):
+        pid = 0
+    if pid and pid != os.getpid() and _pid_alive(pid):
+        raise AlreadyRunning(f"`feed.py {command}` is already running (pid {pid}); skipping this run")
+    lock.write_text(str(os.getpid()))
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 def main() -> int:
@@ -87,15 +140,27 @@ def main() -> int:
         elif args.command == "publish":
             from shorts_generator.publish.runner import publish
 
-            publish(limit=args.limit, platforms=args.platform, dry_run=args.dry_run)
+            if args.dry_run:
+                publish(limit=args.limit, platforms=args.platform, dry_run=True)
+            else:
+                with single_run("publish"):
+                    publish(limit=args.limit, platforms=args.platform)
         elif args.command == "discover":
             from shorts_generator.feed.runner import discover
 
-            discover(dry_run=args.dry_run)
+            if args.dry_run:
+                discover(dry_run=True)
+            else:
+                with single_run("discover"):
+                    discover()
         elif args.command == "process":
             from shorts_generator.feed.runner import process
 
-            process(limit=args.limit)
+            with single_run("process"):
+                process(limit=args.limit)
+    except AlreadyRunning as e:
+        print(f"[feed] {e}")
+        return 0
     except Exception as e:
         print(f"\nFAILED: {e}", file=sys.stderr)
         return 1
