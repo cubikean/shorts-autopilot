@@ -73,8 +73,10 @@ renseigne `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`, sinon Twitch est ignoré.
 ### 4. TikTok (brouillons)
 
 Sans audit TikTok, l'API ne peut publier qu'en privé. Les shorts sont donc
-envoyés **en brouillon dans ta boîte TikTok** : tu ouvres la notification, tu
-colles la **Légende TikTok** (colonne Notion) et tu publies. L'API ne peut pas
+envoyés **en brouillon dans ta boîte TikTok** : dans l'**application mobile**
+(le site web affiche la notification mais ne l'ouvre pas), va dans
+**Boîte de réception → Notifications système → « Ton contenu est prêt »**, colle
+la **Légende TikTok** (colonne Notion) et publie. L'API ne peut pas
 écrire la légende elle-même. Maximum 5 brouillons en attente par 24 h.
 
 1. Sur [developers.tiktok.com](https://developers.tiktok.com), connecte-toi et crée une app (**Manage apps → Connect an app**), plateforme **Desktop**.
