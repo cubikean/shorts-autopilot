@@ -12,12 +12,13 @@ OAuth: desktop flow with PKCE (hex SHA-256 challenge); the access token lasts
 import hashlib
 import http.server
 import json
+import re
 import secrets
 import time
 import urllib.parse
 import webbrowser
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import requests
 
@@ -29,11 +30,13 @@ from ..config import (
     TIKTOK_TOKEN_FILE,
     TIKTOK_USERNAME,
 )
-from .base import Publisher, QuotaExceeded, ShortPost
+from .base import PostStats, Publisher, QuotaExceeded, ShortPost
 
 AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 API = "https://open.tiktokapis.com/v2"
-SCOPES = "user.info.basic,video.upload"
+SCOPES = "user.info.basic,video.upload,video.list"  # video.list: daily stats of your public videos
+VIDEO_FIELDS = "id,title,video_description,share_url,create_time,view_count,like_count,comment_count,share_count"
+MAX_VIDEO_PAGES = 10  # 20 videos per page: the 200 most recent public videos
 MAX_SINGLE_CHUNK_BYTES = 64 * 1024 * 1024  # up to this size the video goes up as one chunk of its exact size
 CHUNK_BYTES = 10 * 1024 * 1024             # larger videos: 5-64 MB chunks, the last one absorbs the remainder
 STATUS_POLL_SECONDS = 10            # status endpoint allows 30 requests/min
@@ -160,6 +163,17 @@ def _access_token() -> str:
     return _save_token(refreshed, previous=token)["access_token"]
 
 
+def _granted_scopes() -> set:
+    try:
+        return set((json.loads(Path(TIKTOK_TOKEN_FILE).read_text(encoding="utf-8")).get("scope") or "").split(","))
+    except (OSError, ValueError):
+        return set()
+
+
+def _normalise(text: str) -> str:
+    return " ".join(str(text or "").casefold().split())
+
+
 def caption(post: ShortPost) -> str:
     """What to paste in the TikTok app (mirrors the "Légende TikTok" Notion formula)."""
     return "\n\n".join(part for part in (post.title, post.description, " ".join(post.hashtags)) if part)[:2200]
@@ -189,6 +203,49 @@ class TikTokPublisher(Publisher):
             # Includes the 5-pending-drafts cap: publish the drafts waiting in the app.
             raise QuotaExceeded(f"TikTok {code}: {error.get('message')}")
         raise RuntimeError(f"TikTok {path} failed [{resp.status_code} {code}]: {error.get('message')}")
+
+    def _list_videos(self) -> List[Dict]:
+        videos: List[Dict] = []
+        body: Dict = {"max_count": 20}
+        for _ in range(MAX_VIDEO_PAGES):
+            data = self._api(f"video/list/?fields={VIDEO_FIELDS}", body)
+            videos += data.get("videos") or []
+            if not data.get("has_more"):
+                break
+            body = {"max_count": 20, "cursor": data["cursor"]}
+        return videos
+
+    def fetch_stats(self, items):
+        if "video.list" not in _granted_scopes():
+            raise RuntimeError(
+                "reading TikTok stats needs the video.list scope: enable it on the TikTok app, "
+                "then run `python feed.py auth-tiktok` again"
+            )
+        videos = self._list_videos()
+        by_id = {video["id"]: video for video in videos}
+        used = set()
+        stats: Dict[str, PostStats] = {}
+        for page_id, link, post in items:
+            match = re.search(r"/video/(\d+)", link or "")
+            if match:
+                video = by_id.get(match.group(1))
+            else:
+                # Drafts are posted from the app, so the video id is unknown until found once by caption
+                # (newest first); its real link then replaces the profile link in Notion.
+                title = _normalise(post.title)
+                video = next((v for v in videos if v["id"] not in used and title and (
+                    _normalise(v.get("video_description")).startswith(title) or _normalise(v.get("title")).startswith(title)
+                )), None)
+            if video:
+                used.add(video["id"])
+                stats[page_id] = PostStats(
+                    views=video.get("view_count"),
+                    likes=video.get("like_count"),
+                    comments=video.get("comment_count"),
+                    shares=video.get("share_count"),
+                    url=video.get("share_url"),
+                )
+        return stats
 
     def publish(self, post: ShortPost) -> str:
         size = post.file.stat().st_size

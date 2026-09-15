@@ -115,6 +115,7 @@ powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1
 | `ShortsFeed-Discover` | 00h00 | cherche les nouvelles vidéos virales |
 | `ShortsFeed-Process` | 01h00 | génère les shorts des vidéos trouvées juste avant |
 | `ShortsFeed-Publish` | 09h, 13h, 17h, 21h, 01h, 05h | publie les shorts validés (`PUBLISH_MAX_PER_RUN` par passage) |
+| `ShortsFeed-Stats` | 08h00 | met à jour la colonne **Stats** (vues, j'aime, commentaires, partages) |
 
 Les horaires se changent en paramètres du script (`-DiscoverAt`, `-ProcessAt`,
 `-PublishFrom`, `-PublishEveryHours`). Le PC doit être allumé avec ta session
@@ -130,6 +131,7 @@ Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 | `python feed.py process --limit 3` | génère les shorts des meilleures vidéos en file |
 | `python feed.py publish --dry-run` | liste ce qui serait publié |
 | `python feed.py publish --limit 1` | publie les shorts validés |
+| `python feed.py stats` | met à jour les stats YouTube / TikTok dans Notion |
 
 Pour tester un upload sans le rendre public :
 `$env:YOUTUBE_PRIVACY="private"; python feed.py publish`
@@ -170,6 +172,14 @@ Passe une vidéo en *Rejeté* pour qu'elle ne soit jamais traitée.
 
 Tu peux modifier les textes dans Notion avant de valider : c'est ce qui est publié.
 Une **Date de publication** dans le futur programme la sortie sur YouTube.
+
+**Stats** : chaque matin, la colonne *Stats* de chaque short publié reçoit une ligne
+par plateforme (`YouTube : 1 234 vues · 56 j'aime · 3 com.`) et l'heure de mise à jour.
+Côté TikTok, la vidéo est retrouvée parmi tes vidéos **publiques** grâce à sa légende
+(elle doit commencer par le titre du short), puis son vrai lien remplace celui du profil.
+Une plateforme en échec garde ses derniers chiffres. Permissions nécessaires, une fois :
+- YouTube : relance `python feed.py auth-youtube` (ajoute la lecture des statistiques) ;
+- TikTok : active le scope **`video.list`** sur l'app (developers.tiktok.com), puis relance `python feed.py auth-tiktok`.
 
 **Jamais de rafale sur YouTube** : deux shorts ne deviennent jamais publics à moins de
 `YOUTUBE_MIN_GAP_MINUTES` (3 h par défaut) d'intervalle, même si plusieurs partent dans

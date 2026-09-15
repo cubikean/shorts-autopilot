@@ -10,7 +10,7 @@ import random
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from ..config import (
     LOCAL_OUTPUT_DIR,
@@ -20,10 +20,11 @@ from ..config import (
     YOUTUBE_PRIVACY,
     YOUTUBE_TOKEN_FILE,
 )
-from .base import Publisher, QuotaExceeded, ShortPost
+from .base import PostStats, Publisher, QuotaExceeded, ShortPost
 
 SCHEDULE_FILE = Path(LOCAL_OUTPUT_DIR) / "youtube_schedule.json"
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"  # daily stats
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload", READONLY_SCOPE]
 RETRY_STATUSES = {500, 502, 503, 504}
 QUOTA_REASONS = {"quotaExceeded", "uploadLimitExceeded", "dailyLimitExceeded", "rateLimitExceeded"}
 MAX_RETRIES = 5
@@ -53,7 +54,9 @@ def _credentials():
     path = Path(YOUTUBE_TOKEN_FILE)
     if not path.exists():
         raise RuntimeError(f"{YOUTUBE_TOKEN_FILE} not found. Run `python feed.py auth-youtube` once.")
-    creds = Credentials.from_authorized_user_file(str(path), SCOPES)
+    # Keep the scopes the token was granted: forcing new ones would make the refresh fail
+    # (invalid_scope) and break uploads until auth-youtube is run again.
+    creds = Credentials.from_authorized_user_file(str(path))
     if not creds.valid:
         try:
             creds.refresh(Request())
@@ -103,6 +106,13 @@ def _tags(hashtags: List[str]) -> List[str]:
     return tags
 
 
+def _count(value) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None  # hidden like counts are simply absent
+
+
 def _reason(error) -> str:
     try:
         return json.loads(error.content)["error"]["errors"][0]["reason"]
@@ -115,7 +125,27 @@ class YouTubePublisher(Publisher):
         from googleapiclient.discovery import build
 
         # Built up front so an auth problem aborts the run instead of failing every row.
-        self.client = build("youtube", "v3", credentials=_credentials(), cache_discovery=False)
+        self.creds = _credentials()
+        self.client = build("youtube", "v3", credentials=self.creds, cache_discovery=False)
+
+    def fetch_stats(self, items):
+        if not self.creds.has_scopes([READONLY_SCOPE]):
+            raise RuntimeError("reading YouTube stats needs one more permission: run `python feed.py auth-youtube` again")
+        page_of: Dict[str, str] = {}
+        for page_id, link, _post in items:
+            page_of[link.rstrip("/").split("/")[-1].split("?")[0]] = page_id  # youtube.com/shorts/<id>
+        ids = list(page_of)
+        stats: Dict[str, PostStats] = {}
+        for i in range(0, len(ids), 50):  # 1 quota unit per call, 50 ids max
+            response = self.client.videos().list(part="statistics", id=",".join(ids[i:i + 50])).execute()
+            for video in response.get("items", []):
+                numbers = video.get("statistics", {})
+                stats[page_of[video["id"]]] = PostStats(
+                    views=_count(numbers.get("viewCount")),
+                    likes=_count(numbers.get("likeCount")),
+                    comments=_count(numbers.get("commentCount")),
+                )
+        return stats
 
     def publish(self, post: ShortPost) -> str:
         import httplib2

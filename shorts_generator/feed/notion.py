@@ -230,7 +230,7 @@ class Notion:
         if changes:
             patch["Publication"] = {"select": {"options": new_options}}
 
-        wanted = {"Date de publication": {"date": {}}, "Erreur publication": {"rich_text": {}}}
+        wanted = {"Date de publication": {"date": {}}, "Erreur publication": {"rich_text": {}}, "Stats": {"rich_text": {}}}
         wanted.update({column: {"url": {}} for column in link_columns})
         if "TikTok" in link_columns:
             # TikTok inbox drafts can't carry a caption: this is what you paste in the app.
@@ -255,20 +255,40 @@ class Notion:
             ],
             "page_size": max(1, min(limit, 100)),
         })
-        rows = []
-        for page in result.get("results", []):
-            p = page["properties"]
-            rows.append({
-                "page_id": page["id"],
-                "title": _plain(p["Titre"]),
-                "hook": _plain(p["Accroche"]),
-                "description": _plain(p["Description"]),
-                "hashtags": _plain(p["Hashtags"]),
-                "file": _plain(p["Fichier"]),
-                "publish_at": (p["Date de publication"]["date"] or {}).get("start"),
-                "links": {column: p[column]["url"] for column in link_columns},
-            })
-        return rows
+        return [self._short_row(page, link_columns) for page in result.get("results", [])]
+
+    def shorts_with_links(self, database_id: str, link_columns: List[str]) -> List[Dict]:
+        """Every short posted on at least one platform (daily stats refresh)."""
+        rows, cursor = [], None
+        while True:
+            body = {"filter": {"or": [{"property": c, "url": {"is_not_empty": True}} for c in link_columns]}, "page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            result = self._request("POST", f"databases/{database_id}/query", body)
+            rows += [self._short_row(page, link_columns) for page in result.get("results", [])]
+            if not result.get("has_more"):
+                return rows
+            cursor = result["next_cursor"]
+
+    @staticmethod
+    def _short_row(page: Dict, link_columns: List[str]) -> Dict:
+        p = page["properties"]
+        return {
+            "page_id": page["id"],
+            "title": _plain(p["Titre"]),
+            "hook": _plain(p["Accroche"]),
+            "description": _plain(p["Description"]),
+            "hashtags": _plain(p["Hashtags"]),
+            "file": _plain(p["Fichier"]),
+            "publish_at": (p["Date de publication"]["date"] or {}).get("start"),
+            "links": {column: p[column]["url"] for column in link_columns},
+            "stats": _plain(p["Stats"]) if "Stats" in p else "",
+        }
+
+    def set_stats(self, page_id: str, text: str, links: Optional[Dict[str, str]] = None) -> None:
+        props = {"Stats": _text(text)}
+        props.update({column: {"url": url} for column, url in (links or {}).items()})
+        self._request("PATCH", f"pages/{page_id}", {"properties": props})
 
     def set_publication(self, page_id: str, status: str, error: Optional[str] = None) -> None:
         props = {"Publication": _select(status), "Erreur publication": _text(error)}

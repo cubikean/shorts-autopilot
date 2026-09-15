@@ -9,6 +9,7 @@ Usage:
     python feed.py auth-tiktok            # one-time OAuth consent for TikTok drafts
     python feed.py notify-test            # test phone notification (ntfy)
     python feed.py publish [--limit 1] [--platform youtube] [--dry-run]
+    python feed.py stats                  # refresh YouTube / TikTok numbers in the Notion Stats column
 """
 import argparse
 import os
@@ -93,6 +94,8 @@ def main() -> int:
     sub.add_parser("auth-tiktok", help="authorise draft uploads to your TikTok account (opens a browser once)")
     sub.add_parser("notify-test", help="send a test notification to your phone (ntfy)")
 
+    sub.add_parser("stats", help="refresh the Stats column (YouTube and TikTok numbers) of posted shorts")
+
     pub = sub.add_parser("publish", help="upload the shorts marked Validé in Notion")
     pub.add_argument("--limit", type=int, default=PUBLISH_MAX_PER_RUN, help=f"shorts per run (default {PUBLISH_MAX_PER_RUN})")
     pub.add_argument("--platform", action="append", help="only this platform (repeatable; default PUBLISH_PLATFORMS)")
@@ -145,6 +148,11 @@ def main() -> int:
             else:
                 with single_run("publish"):
                     publish(limit=args.limit, platforms=args.platform)
+        elif args.command == "stats":
+            from shorts_generator.publish.stats import update_stats
+
+            with single_run("stats"):
+                update_stats()
         elif args.command == "discover":
             from shorts_generator.feed.runner import discover
 
