@@ -80,6 +80,12 @@ YOUTUBE_CLIENT_SECRETS = _env("YOUTUBE_CLIENT_SECRETS", "client_secret.json")
 YOUTUBE_TOKEN_FILE = _env("YOUTUBE_TOKEN_FILE", "youtube_token.json")
 YOUTUBE_PRIVACY = _env("YOUTUBE_PRIVACY", "public")         # public / unlisted / private
 YOUTUBE_CATEGORY_ID = _env("YOUTUBE_CATEGORY_ID", "24")     # 24 Entertainment, 20 Gaming, 23 Comedy
+# TikTok (inbox drafts): app credentials from developers.tiktok.com, token written by auth-tiktok.
+TIKTOK_CLIENT_KEY = _env("TIKTOK_CLIENT_KEY", "")
+TIKTOK_CLIENT_SECRET = _env("TIKTOK_CLIENT_SECRET", "")
+TIKTOK_TOKEN_FILE = _env("TIKTOK_TOKEN_FILE", "tiktok_token.json")
+TIKTOK_REDIRECT_PORT = int(_env("TIKTOK_REDIRECT_PORT", "8765"))  # redirect URI http://127.0.0.1:<port>/callback/
+TIKTOK_USERNAME = _env("TIKTOK_USERNAME", "").lstrip("@")
 
 
 # VAD (Voice Activity Detection) settings for faster-whisper

@@ -6,6 +6,7 @@ Usage:
     python feed.py process [--limit 3]
     python feed.py setup-publish          # add publishing columns to an existing Shorts database
     python feed.py auth-youtube           # one-time OAuth consent for the upload channel
+    python feed.py auth-tiktok            # one-time OAuth consent for TikTok drafts
     python feed.py publish [--limit 1] [--platform youtube] [--dry-run]
 """
 import argparse
@@ -35,6 +36,7 @@ def main() -> int:
 
     sub.add_parser("setup-publish", help="add the publishing columns/options to the Notion Shorts database")
     sub.add_parser("auth-youtube", help="authorise uploads to your YouTube channel (opens a browser once)")
+    sub.add_parser("auth-tiktok", help="authorise draft uploads to your TikTok account (opens a browser once)")
 
     pub = sub.add_parser("publish", help="upload the shorts marked Validé in Notion")
     pub.add_argument("--limit", type=int, default=PUBLISH_MAX_PER_RUN, help=f"shorts per run (default {PUBLISH_MAX_PER_RUN})")
@@ -63,6 +65,10 @@ def main() -> int:
             print("\n".join(f"  {c}" for c in changes) if changes else "Shorts database already up to date.")
         elif args.command == "auth-youtube":
             from shorts_generator.publish.youtube import authorize
+
+            authorize()
+        elif args.command == "auth-tiktok":
+            from shorts_generator.publish.tiktok import authorize
 
             authorize()
         elif args.command == "publish":

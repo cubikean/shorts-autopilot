@@ -4,6 +4,8 @@ Notion workflow on the Shorts database:
   Publication "À publier" → you set "Validé" → each platform's URL column gets
   filled → "Publié". A failure sets "Erreur" with the reason in "Erreur publication";
   set "Validé" again to retry. Platforms already published are never redone.
+A platform that can't start (missing token) or runs out of quota is skipped for
+the rest of the run; the others carry on and the short stays "Validé" until all are done.
 """
 import re
 from datetime import datetime
@@ -23,10 +25,17 @@ def _youtube() -> Publisher:
     return YouTubePublisher()
 
 
+def _tiktok() -> Publisher:
+    from .tiktok import TikTokPublisher
+
+    return TikTokPublisher()
+
+
 # Platform key → (Notion URL column holding the post link, publisher factory).
-# A new platform (TikTok next) = one module with a Publisher + one entry here.
+# A new platform = one module with a Publisher + one entry here.
 PLATFORMS: Dict[str, Tuple[str, Callable[[], Publisher]]] = {
     "youtube": ("YouTube", _youtube),
+    "tiktok": ("TikTok", _tiktok),
 }
 
 
@@ -67,32 +76,60 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
     print(f"[publish] {len(rows)} validated short(s) to publish on {', '.join(names)}")
     if not rows:
         return
-    clients = {} if dry_run else {name: PLATFORMS[name][1]() for name in names}
+
+    clients: Dict[str, Publisher] = {}
+    skipped: Dict[str, str] = {}  # platform → why it sits out the rest of this run
+    if not dry_run:
+        for name in names:
+            try:
+                clients[name] = PLATFORMS[name][1]()
+            except Exception as e:
+                skipped[name] = str(e)
+                print(f"[publish] {name} unavailable this run: {e}", flush=True)
+        if not clients:
+            raise RuntimeError("no platform available: " + "; ".join(f"{n}: {why}" for n, why in skipped.items()))
 
     for row in rows:
         post = _post(row)
-        pending = [name for name in names if not row["links"].get(PLATFORMS[name][0])]
+        done = {name for name in names if row["links"].get(PLATFORMS[name][0])}
+        pending = [name for name in names if name not in done]
         when = f" · programmé {post.publish_at:%Y-%m-%d %H:%M}" if post.publish_at else ""
         print(f"\n[publish] ▶ {post.title} → {', '.join(pending)}{when}", flush=True)
         if dry_run:
             print(f"[publish]   file {post.file} ({'ok' if post.file.exists() else 'MISSING'}), hashtags {' '.join(post.hashtags)}")
             continue
+        runnable = [name for name in pending if name not in skipped]
+        if not runnable:
+            print(f"[publish]   waiting: {', '.join(pending)} unavailable this run", flush=True)
+            if len(skipped) == len(names):
+                return
+            continue
         if not post.file.exists():
             print(f"[publish] ✘ file not found: {post.file}", flush=True)
             notion.set_publication(post.page_id, PUB_ERROR, f"Fichier introuvable : {post.file}")
             continue
-        try:
-            for name in pending:
+
+        failure = None
+        for name in runnable:
+            try:
                 url = clients[name].publish(post)
-                # Saved per platform right away, so a later failure never re-uploads this one.
-                notion.set_link(post.page_id, PLATFORMS[name][0], url)
-                print(f"[publish]   {name}: {url}", flush=True)
-        except QuotaExceeded as e:
-            print(f"[publish] ■ {e} — stopping, the remaining shorts wait for the next run", flush=True)
-            return
-        except Exception as e:
-            print(f"[publish] ✘ {e}", flush=True)
-            notion.set_publication(post.page_id, PUB_ERROR, str(e)[:1900])
-            continue
-        notion.set_publication(post.page_id, PUB_PUBLISHED)
-        print("[publish] ✔ published", flush=True)
+            except QuotaExceeded as e:
+                skipped[name] = str(e)
+                print(f"[publish] ■ {name}: {e} — skipped for the rest of this run", flush=True)
+                continue
+            except Exception as e:
+                failure = f"{name}: {e}"
+                print(f"[publish] ✘ {failure}", flush=True)
+                break
+            # Saved per platform right away, so a later failure never re-uploads this one.
+            notion.set_link(post.page_id, PLATFORMS[name][0], url)
+            done.add(name)
+            print(f"[publish]   {name}: {url}", flush=True)
+
+        if failure:
+            notion.set_publication(post.page_id, PUB_ERROR, failure[:1900])
+        elif len(done) == len(names):
+            notion.set_publication(post.page_id, PUB_PUBLISHED)
+            print("[publish] ✔ published", flush=True)
+        else:
+            print(f"[publish]   still waiting for: {', '.join(n for n in names if n not in done)}", flush=True)

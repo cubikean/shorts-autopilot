@@ -232,6 +232,11 @@ class Notion:
 
         wanted = {"Date de publication": {"date": {}}, "Erreur publication": {"rich_text": {}}}
         wanted.update({column: {"url": {}} for column in link_columns})
+        if "TikTok" in link_columns:
+            # TikTok inbox drafts can't carry a caption: this is what you paste in the app.
+            wanted["Légende TikTok"] = {"formula": {
+                "expression": 'prop("Titre") + "\\n\\n" + prop("Description") + "\\n\\n" + prop("Hashtags")',
+            }}
         for name, spec in wanted.items():
             if name not in props:
                 patch[name] = spec

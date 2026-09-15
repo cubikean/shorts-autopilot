@@ -8,3 +8,4 @@ output/
 .DS_Store
 client_secret*.json
 youtube_token.json
+tiktok_token.json

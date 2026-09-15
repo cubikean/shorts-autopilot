@@ -70,6 +70,30 @@ renseigne `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`, sinon Twitch est ignoré.
 
 `client_secret.json`, `youtube_token.json` et `.env` sont ignorés par git.
 
+### 4. TikTok (brouillons)
+
+Sans audit TikTok, l'API ne peut publier qu'en privé. Les shorts sont donc
+envoyés **en brouillon dans ta boîte TikTok** : tu ouvres la notification, tu
+colles la **Légende TikTok** (colonne Notion) et tu publies. L'API ne peut pas
+écrire la légende elle-même. Maximum 5 brouillons en attente par 24 h.
+
+1. Sur [developers.tiktok.com](https://developers.tiktok.com), connecte-toi et crée une app (**Manage apps → Connect an app**), plateforme **Desktop**.
+2. Passe en **Sandbox** (pas de revue d'app nécessaire) et ajoute les produits **Login Kit** et **Content Posting API** (laisse *Direct Post* désactivé). Scopes : `user.info.basic`, `video.upload`.
+3. **Login Kit → Desktop → Redirect URI** : `http://127.0.0.1:8765/callback/`
+4. **Sandbox settings → Target users** : ajoute ton compte TikTok.
+5. Copie le **Client key** et le **Client secret** du sandbox dans `.env` (`TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`), ainsi que `TIKTOK_USERNAME`.
+6. Puis :
+   ```powershell
+   python feed.py setup-publish   # ajoute les colonnes TikTok et Légende TikTok
+   python feed.py auth-tiktok     # consentement dans le navigateur
+   python feed.py publish --platform tiktok --limit 1
+   ```
+7. Quand ça marche, ajoute-le au pipeline : `PUBLISH_PLATFORMS=youtube,tiktok` dans `.env`.
+
+Une plateforme indisponible (token manquant) ou à court de quota est ignorée
+pour le reste du passage : les autres continuent, et le short reste *Validé*
+jusqu'à ce que toutes soient faites. `tiktok_token.json` est ignoré par git.
+
 ## Utilisation
 
 ### En automatique
@@ -132,7 +156,7 @@ Passe une vidéo en *Rejeté* pour qu'elle ne soit jamais traitée.
 |---|---|
 | À publier | généré, en attente de ta relecture |
 | **Validé** | à toi de le mettre : il partira au prochain `publish` |
-| Publié | en ligne, lien dans la colonne **YouTube** |
+| Publié | fait sur toutes les plateformes : lien dans **YouTube**, lien de ton profil dans **TikTok** (brouillon à finaliser dans l'app) |
 | Erreur | échec, raison dans *Erreur publication* ; remets *Validé* pour réessayer |
 | Rejeté | ignoré |
 
@@ -201,7 +225,7 @@ shorts_generator/
 Chaque plateforme = une classe `Publisher` (`publish(post) -> url`) dans
 `shorts_generator/publish/`, plus une entrée dans `PLATFORMS`
 (`publish/runner.py`) avec le nom de sa colonne URL dans Notion. Ajoute-la à
-`PUBLISH_PLATFORMS` et relance `python feed.py setup-publish`. TikTok est la prochaine.
+`PUBLISH_PLATFORMS` et relance `python feed.py setup-publish`.
 
 ## Dépannage
 
