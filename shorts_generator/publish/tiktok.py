@@ -34,8 +34,8 @@ from .base import Publisher, QuotaExceeded, ShortPost
 AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 API = "https://open.tiktokapis.com/v2"
 SCOPES = "user.info.basic,video.upload"
-MIN_CHUNK_BYTES = 5 * 1024 * 1024   # smaller files go up as a single chunk
-CHUNK_BYTES = 10 * 1024 * 1024      # 5-64 MB allowed; the last chunk absorbs the remainder
+MAX_SINGLE_CHUNK_BYTES = 64 * 1024 * 1024  # up to this size the video goes up as one chunk of its exact size
+CHUNK_BYTES = 10 * 1024 * 1024             # larger videos: 5-64 MB chunks, the last one absorbs the remainder
 STATUS_POLL_SECONDS = 10            # status endpoint allows 30 requests/min
 STATUS_TIMEOUT_SECONDS = 600
 AUTH_TIMEOUT_SECONDS = 300
@@ -192,7 +192,9 @@ class TikTokPublisher(Publisher):
 
     def publish(self, post: ShortPost) -> str:
         size = post.file.stat().st_size
-        chunk = size if size < MIN_CHUNK_BYTES else min(CHUNK_BYTES, size)
+        # A single chunk must declare chunk_size == video_size: an 11.7 MB file sent as
+        # "10 MB x 1 chunk" is rejected with "The chunk size is invalid".
+        chunk = size if size <= MAX_SINGLE_CHUNK_BYTES else CHUNK_BYTES
         count = size // chunk  # rounded down: the last chunk carries the remainder
         init = self._api("post/publish/inbox/video/init/", {
             "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": count},
