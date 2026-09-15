@@ -243,7 +243,8 @@ class TikTokPublisher(Publisher):
                     likes=video.get("like_count"),
                     comments=video.get("comment_count"),
                     shares=video.get("share_count"),
-                    url=video.get("share_url"),
+                    # share_url carries tracking parameters (utm_source = app client key): keep the clean link.
+                    url=(video.get("share_url") or "").split("?")[0] or None,
                 )
         return stats
 
