@@ -192,7 +192,7 @@ suivants (dernier créneau mémorisé dans `output\youtube_schedule.json`).
 | YouTube | Colonnes Notion |
 |---|---|
 | Titre | *Titre* (sinon *Accroche*), 100 caractères max |
-| Description | *Description* (avec crédit source) + *Hashtags* |
+| Description | *Description* + *Hashtags* (sans crédit source) |
 | Tags | *Hashtags* sans `#` |
 
 ## Comment ça marche

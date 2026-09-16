@@ -86,13 +86,13 @@ def process(limit: int = FEED_MAX_PER_RUN) -> None:
                 errors = "; ".join(str(s.get("error")) for s in result["shorts"])
                 raise RuntimeError(f"no clip rendered ({errors})")
 
-            credit = f"🎥 Source : {row['channel']} — {row['url']}"
             for short in rendered:
                 if row["start"] is not None:
                     # Times are relative to the downloaded window; report them in VOD time.
                     short["start_time"] = float(short["start_time"]) + row["start"]
                     short["end_time"] = float(short["end_time"]) + row["start"]
-                description = f"{short.get('description', '')}\n\n{credit}".strip()
+                # No source credit in the public description (the Notion row still links the source video).
+                description = str(short.get("description") or "").strip()
                 notion.add_short(shorts_db, row["page_id"], short, description)
                 meta_path = Path(short["clip_url"]).with_suffix(".json")
                 if meta_path.exists():
