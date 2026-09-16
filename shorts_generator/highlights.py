@@ -49,15 +49,17 @@ Rules:
 - {num_clips_instruction}
 - start_time / end_time are integer seconds read from the [seconds] markers
 - "title": max 50 characters. "hook_sentence": the clip's opening line, verbatim. "virality_reason": max 15 words
-- "description": 1-2 short lines. "hashtags": 3-5 lowercase hashtags mixing niche (streamer, game, show) and broad tags, no spaces inside a tag
-- Write title, description, hashtags and virality_reason in the transcript's language
+- "description": ONE short line. "hashtags": exactly 3 lowercase hashtags, in this order: the creator's name, the game or topic, the vibe (e.g. #drole, #wtf, #emotion); no spaces inside a tag (#shorts is added automatically)
+- Write title and description in French, even when the clip is in English (the audience is French-speaking); virality_reason in any language
 
-Tone for title and description — the audience is teenagers scrolling Shorts:
-- Talk like a 16-20 year old texting friends about the clip: spoken, casual, direct, short punchy phrasing. Lowercase is fine
-- Address the viewer directly (in French: tutoiement, "t'as vu ça", "le mec"); natural slang is welcome (in French e.g. "grave", "chaud", "ptdr", "jsuis mort"), but never forced, and don't reuse the same slang word across clips
-- React to the moment or tease it instead of summarising it; never spoil the punchline
-- Banned: formal, literary or marketing wording (in French e.g. "un moment culte", "à ne pas manquer", "découvrez", "totalement", "enchaîne", "absurde")
-- Title: 0-1 emoji. Description: 0-2 emojis, may end with a question that makes people comment
+Style for title and description: copy the style of our best-performing short exactly:
+  title: "3, 3, 3 comme mon âge 💀"
+  description: "il part en roue libre sur les chiffres, plus personne capte rien 😭"
+  hashtags: ["#gotaga", "#gaming", "#drole"]
+- Title: a funny or striking line actually said in the clip (translated to French if needed), short (max 40 characters), lowercase except names, ending with exactly one emoji (💀, 😭, 😳, 🥺)
+- Description: one casual spoken line in the third person ("il", "elle", "ils") saying what happens and how it goes off the rails, lowercase, ending with exactly one emoji; no question, no call to action
+- Plain teen spoken French, no filler slang ("ptdr", "jsuis mort", "grave", "le mec" at most once per batch); never spoil the punchline
+- Banned: formal, literary or marketing wording (e.g. "un moment culte", "à ne pas manquer", "découvrez", "totalement", "enchaîne", "absurde")
 
 Respond ONLY with valid JSON (no markdown, no explanation):
 {{"highlights":[{{"title":"string","start_time":int,"end_time":int,"score":int,"hook_sentence":"string","virality_reason":"string","description":"string","hashtags":["#tag"]}}]}}"""
@@ -146,14 +148,15 @@ def _sanitize_highlights(raw_highlights: object, min_start: float, max_end: floa
 
 
 def _clean_hashtags(value: object) -> List[str]:
-    """Normalise to at most 5 unique '#tag' strings, always ending with #shorts."""
+    """Normalise to at most 4 unique '#tag' strings, always ending with #shorts."""
     raw = value if isinstance(value, list) else re.split(r"[\s,]+", str(value or ""))
     tags: List[str] = []
     for item in raw:
         tag = re.sub(r"[^\w]", "", str(item))
         if tag and tag.lower() not in {t[1:].lower() for t in tags}:
             tags.append("#" + tag)
-    return [t for t in tags if t.lower() != "#shorts"][:4] + ["#shorts"]
+    # Creator, topic, vibe + #shorts: the mix of our best-performing short.
+    return [t for t in tags if t.lower() != "#shorts"][:3] + ["#shorts"]
 
 
 def snap_to_segments(highlights: List[Dict], segments: List[Dict]) -> List[Dict]:

@@ -175,7 +175,8 @@ class YouTubePublisher(Publisher):
         from googleapiclient.http import MediaFileUpload
 
         title = _clean(post.title or post.hook or "Short")[:100]
-        parts = [f"« {post.hook} »" if post.hook else "", post.description, " ".join(post.hashtags)]
+        # No quoted hook on top: our best-performing short had just the description and hashtags.
+        parts = [post.description, " ".join(post.hashtags)]
         description = _truncate_bytes(_clean("\n\n".join(p for p in parts if p)), 5000)
 
         status = {"privacyStatus": YOUTUBE_PRIVACY, "selfDeclaredMadeForKids": False}

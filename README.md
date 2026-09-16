@@ -192,7 +192,7 @@ suivants (dernier créneau mémorisé dans `output\youtube_schedule.json`).
 | YouTube | Colonnes Notion |
 |---|---|
 | Titre | *Titre* (sinon *Accroche*), 100 caractères max |
-| Description | « *Accroche* » + *Description* (avec crédit source) + *Hashtags* |
+| Description | *Description* (avec crédit source) + *Hashtags* |
 | Tags | *Hashtags* sans `#` |
 
 ## Comment ça marche
@@ -204,7 +204,7 @@ suivants (dernier créneau mémorisé dans `output\youtube_schedule.json`).
 **Génération**
 1. **Téléchargement** avec `yt-dlp` (mis en cache : `output\source_<id>.mp4`).
 2. **Transcription** `faster-whisper` : langue détectée, puis `large-v3` pour l'anglais et `large-v3-turbo` pour le reste (`LOCAL_WHISPER_MODELS`). Mise en cache en `.srt`.
-3. **Choix des moments** par le LLM : grille de viralité (accroche, pic d'émotion, prise de position, révélation, conflit, punchline, chute d'histoire, astuce), clips de 20 à 180 s, sans chevauchement. Titre, description et hashtags écrits sur un ton ado, direct. Réponses mises en cache (`output\llm_cache`) : relancer la même vidéo ne coûte rien.
+3. **Choix des moments** par le LLM : grille de viralité (accroche, pic d'émotion, prise de position, révélation, conflit, punchline, chute d'histoire, astuce), clips de 20 à 180 s, sans chevauchement. Titre, description et hashtags calqués sur notre meilleur short (« 3, 3, 3 comme mon âge 💀 », une ligne à la 3ᵉ personne, 3 hashtags + #shorts), en français. Réponses mises en cache (`output\llm_cache`) : relancer la même vidéo ne coûte rien.
 4. **Cadrage vertical** : détection de visage YuNet, un sujet suivi par plan, caméra fixe quand il bouge peu, coupes franches entre les plans. Webcam de stream détectée → empilée au-dessus du contenu.
 5. **Sous-titres** mot par mot, en majuscules, avec effet « pop », dans la langue parlée.
 
