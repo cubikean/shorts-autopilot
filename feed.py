@@ -17,6 +17,22 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 
+
+def _use_project_venv() -> None:
+    """Re-run with venv's Python when started from another interpreter (e.g. plain `python`
+    without activating the venv), which lacks the publishing dependencies."""
+    venv = Path(__file__).resolve().parent / "venv"
+    python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not python.exists() or Path(sys.prefix).resolve() == venv.resolve() or os.environ.get("FEED_VENV_REEXEC"):
+        return
+    import subprocess
+
+    env = {**os.environ, "FEED_VENV_REEXEC": "1"}
+    sys.exit(subprocess.call([str(python), str(Path(__file__).resolve()), *sys.argv[1:]], env=env))
+
+
+_use_project_venv()
+
 # Windows consoles default to 'charmap'; keep Unicode titles printable.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
