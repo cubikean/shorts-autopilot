@@ -81,6 +81,9 @@ la **Légende TikTok** (colonne Notion) et publie. L'API ne peut pas
 
 **Légende directement sur ton téléphone** : installe l'app **ntfy** (Android /
 iOS, gratuite, sans compte) et abonne-toi au topic `NTFY_TOPIC` de ton `.env`.
+Le topic n'est créé nulle part : invente un nom long et aléatoire, par exemple
+`python -c "import secrets; print('shorts-' + secrets.token_hex(8))"`, mets-le
+dans `.env` et abonne-toi au même nom dans l'app.
 À chaque brouillon envoyé, tu reçois la légende avec un bouton **Copier la
 légende** (Android ; sur iPhone, copie le texte depuis la notification).
 Test : `python feed.py notify-test`. Le nom du topic sert de mot de passe : ne le partage pas.
