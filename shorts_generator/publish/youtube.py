@@ -22,6 +22,7 @@ from ..config import (
 )
 from .base import PostStats, Publisher, QuotaExceeded, ShortPost
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEDULE_FILE = Path(LOCAL_OUTPUT_DIR) / "youtube_schedule.json"
 READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"  # daily stats
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload", READONLY_SCOPE]
@@ -30,16 +31,37 @@ QUOTA_REASONS = {"quotaExceeded", "uploadLimitExceeded", "dailyLimitExceeded", "
 MAX_RETRIES = 5
 
 
+def _client_secrets() -> Path:
+    """The OAuth client JSON, found from any working directory.
+
+    Also accepts Google's download name (client_secret_<id>.apps.googleusercontent.com.json)
+    and "client_secret.json.json" from renaming with Windows extensions hidden.
+    """
+    configured = Path(YOUTUBE_CLIENT_SECRETS).expanduser()
+    for candidate in (configured, REPO_ROOT / configured):
+        if candidate.is_file():
+            return candidate
+    found = sorted(REPO_ROOT.glob("client_secret*.json"))
+    if len(found) == 1:
+        print(f"[youtube] using OAuth client {found[0].name}", flush=True)
+        return found[0]
+    if found:
+        raise RuntimeError(
+            f"several OAuth client files in {REPO_ROOT}: {', '.join(p.name for p in found)}. "
+            "Keep one, or set YOUTUBE_CLIENT_SECRETS in .env."
+        )
+    raise RuntimeError(
+        f"{YOUTUBE_CLIENT_SECRETS} not found in {REPO_ROOT}. Download the OAuth client (type Desktop app) "
+        "JSON from Google Cloud Console → APIs & Services → Credentials and save it there "
+        "(with Windows extensions hidden, check it isn't named client_secret.json.txt)."
+    )
+
+
 def authorize() -> None:
     """One-time browser consent; stores a refresh token for unattended runs."""
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    if not Path(YOUTUBE_CLIENT_SECRETS).exists():
-        raise RuntimeError(
-            f"{YOUTUBE_CLIENT_SECRETS} not found. Download the OAuth client (type Desktop app) "
-            "JSON from Google Cloud Console → APIs & Services → Credentials."
-        )
-    flow = InstalledAppFlow.from_client_secrets_file(YOUTUBE_CLIENT_SECRETS, SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(str(_client_secrets()), SCOPES)
     # offline + consent guarantees a refresh token even if the app was authorised before.
     creds = flow.run_local_server(port=0, access_type="offline", prompt="consent")
     Path(YOUTUBE_TOKEN_FILE).write_text(creds.to_json(), encoding="utf-8")

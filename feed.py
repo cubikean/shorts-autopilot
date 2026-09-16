@@ -32,6 +32,8 @@ def _use_project_venv() -> None:
 
 
 _use_project_venv()
+# Relative paths (.env values, tokens, output/, sources.json) are relative to the repo.
+os.chdir(Path(__file__).resolve().parent)
 
 # Windows consoles default to 'charmap'; keep Unicode titles printable.
 if hasattr(sys.stdout, "reconfigure"):
