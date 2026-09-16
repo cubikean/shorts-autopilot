@@ -40,7 +40,7 @@ MAX_VIDEO_PAGES = 10  # 20 videos per page: the 200 most recent public videos
 MAX_SINGLE_CHUNK_BYTES = 64 * 1024 * 1024  # up to this size the video goes up as one chunk of its exact size
 CHUNK_BYTES = 10 * 1024 * 1024             # larger videos: 5-64 MB chunks, the last one absorbs the remainder
 STATUS_POLL_SECONDS = 10            # status endpoint allows 30 requests/min
-STATUS_TIMEOUT_SECONDS = 600
+STATUS_TIMEOUT_SECONDS = 900        # TikTok sometimes keeps processing well past the upload
 AUTH_TIMEOUT_SECONDS = 300
 
 
@@ -279,23 +279,34 @@ class TikTokPublisher(Publisher):
                     raise RuntimeError(f"TikTok chunk {i + 1}/{count} upload failed [{resp.status_code}]: {resp.text[:300]}")
 
         deadline = time.time() + STATUS_TIMEOUT_SECONDS
+        state = None
         while time.time() < deadline:
             time.sleep(STATUS_POLL_SECONDS)
             status = self._api("post/publish/status/fetch/", {"publish_id": publish_id})
             state = status.get("status")
             if state in ("SEND_TO_USER_INBOX", "PUBLISH_COMPLETE"):
-                text = caption(post)
-                print(f"[publish/tiktok]   draft sent to the TikTok inbox. Caption to paste:\n{text}", flush=True)
-                # The API can't pre-fill the caption, so push it to the phone, ready to copy.
-                notify.send(
-                    f"Brouillon TikTok prêt : {post.title}"[:200], text,
-                    copy=text, copy_label="Copier la légende",
-                    open_url="https://www.tiktok.com/", open_label="Ouvrir TikTok",
-                )
-                return f"https://www.tiktok.com/@{TIKTOK_USERNAME}" if TIKTOK_USERNAME else "https://www.tiktok.com/"
+                return self._sent(post)
             if state == "FAILED":
                 reason = str(status.get("fail_reason") or "unknown")
                 if reason.startswith("spam_risk"):
                     raise QuotaExceeded(f"TikTok {reason}")
                 raise RuntimeError(f"TikTok processing failed: {reason}")
-        raise RuntimeError(f"TikTok still processing after {STATUS_TIMEOUT_SECONDS}s (publish_id {publish_id})")
+        # The file is uploaded (the last chunk returned 201) and TikTok is still working on it:
+        # the draft lands later. Failing here would re-upload it next run and leave two drafts.
+        print(
+            f"[publish/tiktok]   still {state} after {STATUS_TIMEOUT_SECONDS}s; the draft should arrive "
+            f"shortly (publish_id {publish_id})",
+            flush=True,
+        )
+        return self._sent(post)
+
+    def _sent(self, post: ShortPost) -> str:
+        text = caption(post)
+        print(f"[publish/tiktok]   draft sent to the TikTok inbox. Caption to paste:\n{text}", flush=True)
+        # The API can't pre-fill the caption, so push it to the phone, ready to copy.
+        notify.send(
+            f"Brouillon TikTok prêt : {post.title}"[:200], text,
+            copy=text, copy_label="Copier la légende",
+            open_url="https://www.tiktok.com/", open_label="Ouvrir TikTok",
+        )
+        return f"https://www.tiktok.com/@{TIKTOK_USERNAME}" if TIKTOK_USERNAME else "https://www.tiktok.com/"
