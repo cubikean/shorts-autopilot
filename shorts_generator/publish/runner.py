@@ -74,8 +74,9 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
         raise RuntimeError("NOTION_SHORTS_DB is not set. Run `python feed.py setup-notion <page>` and add the ids to .env.")
 
     notion = Notion(NOTION_TOKEN)
-    rows = notion.validated_shorts(NOTION_SHORTS_DB, link_columns(required), limit)
-    print(f"[publish] {len(rows)} validated short(s) to publish on {', '.join(names)}")
+    # Fetch past the limit: a short blocked on one platform (quota) mustn't starve the others.
+    rows = notion.validated_shorts(NOTION_SHORTS_DB, link_columns(required), 100)
+    print(f"[publish] {len(rows)} validated short(s) to publish on {', '.join(names)} (up to {limit} this run)")
     if not rows:
         return
 
@@ -91,7 +92,10 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
         if not clients:
             raise RuntimeError("no platform available: " + "; ".join(f"{n}: {why}" for n, why in skipped.items()))
 
+    handled = 0  # shorts that had an upload attempted; only these count toward the limit
     for row in rows:
+        if handled >= limit:
+            break
         post = _post(row)
         done = {name for name in required if row["links"].get(PLATFORMS[name][0])}
         pending = [name for name in names if name not in done]
@@ -101,6 +105,7 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
         print(f"\n[publish] ▶ {post.title} → {', '.join(pending)}{when}", flush=True)
         if dry_run:
             print(f"[publish]   file {post.file} ({'ok' if post.file.exists() else 'MISSING'}), hashtags {' '.join(post.hashtags)}")
+            handled += 1
             continue
         runnable = [name for name in pending if name not in skipped]
         if not runnable:
@@ -114,6 +119,7 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
             continue
 
         failure = None
+        attempted = False
         for name in runnable:
             try:
                 url = clients[name].publish(post)
@@ -124,11 +130,14 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
             except Exception as e:
                 failure = f"{name}: {e}"
                 print(f"[publish] ✘ {failure}", flush=True)
+                attempted = True
                 break
+            attempted = True
             # Saved per platform right away, so a later failure never re-uploads this one.
             notion.set_link(post.page_id, PLATFORMS[name][0], url)
             done.add(name)
             print(f"[publish]   {name}: {url}", flush=True)
+        handled += attempted
 
         if failure:
             notion.set_publication(post.page_id, PUB_ERROR, failure[:1900])

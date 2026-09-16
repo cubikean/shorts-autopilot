@@ -199,8 +199,16 @@ class TikTokPublisher(Publisher):
         code = error.get("code") or "ok"
         if code == "ok" and resp.status_code < 400:
             return data.get("data") or {}
+        if code == "spam_risk_too_many_pending_share":
+            # 5 drafts already wait in the app: nothing more goes out until some are posted.
+            notify.send(
+                "TikTok bloqué : 5 brouillons en attente",
+                "Publie ou supprime des brouillons dans la boîte de réception TikTok "
+                "pour débloquer les prochains envois.",
+                open_url="https://www.tiktok.com/", open_label="Ouvrir TikTok",
+            )
+            raise QuotaExceeded("TikTok: 5 drafts already pending in the app — post or delete some")
         if resp.status_code == 429 or code == "rate_limit_exceeded" or code.startswith("spam_risk"):
-            # Includes the 5-pending-drafts cap: publish the drafts waiting in the app.
             raise QuotaExceeded(f"TikTok {code}: {error.get('message')}")
         raise RuntimeError(f"TikTok {path} failed [{resp.status_code} {code}]: {error.get('message')}")
 
