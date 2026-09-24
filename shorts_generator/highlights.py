@@ -49,7 +49,7 @@ Rules:
 - {num_clips_instruction}. Only the best one is actually published, so rank them honestly: the first must be the single most scroll-stopping moment of the whole video
 - start_time / end_time are integer seconds read from the [seconds] markers
 - "title": max 50 characters. "hook_sentence": the clip's opening line, verbatim. "virality_reason": max 15 words
-- "description": ONE short line. "hashtags": exactly 3 lowercase hashtags, in this order: the creator's name, the game or topic, the vibe (e.g. #drole, #wtf, #emotion); no spaces inside a tag (#shorts is added automatically)
+- "description": ONE short line. "hashtags": exactly 3 lowercase hashtags, in this order: the creator's name (guess it; it is replaced with the real channel afterwards), the game or topic, the vibe (e.g. #drole, #wtf, #emotion); no spaces inside a tag (#shorts is added automatically)
 - Write title and description in French, even when the clip is in English (the audience is French-speaking); virality_reason in any language
 
 Style for title and description: copy the style of our best-performing short exactly:
@@ -157,6 +157,19 @@ def _clean_hashtags(value: object) -> List[str]:
             tags.append("#" + tag)
     # Creator, topic, vibe + #shorts: the mix of our best-performing short.
     return [t for t in tags if t.lower() != "#shorts"][:3] + ["#shorts"]
+
+
+def with_creator_tag(tags: List[str], channel: str) -> List[str]:
+    """Replace the model's guessed creator tag with the real channel.
+
+    The transcript never says who is speaking, so the first hashtag is invented
+    (it tends to copy the example in the prompt).
+    """
+    slug = re.sub(r"[^\w]", "", str(channel or "").lower())
+    if not slug:
+        return list(tags)
+    others = [t for t in list(tags)[1:] if t.lstrip("#").lower() != slug]
+    return _clean_hashtags(["#" + slug] + others)
 
 
 def snap_to_segments(highlights: List[Dict], segments: List[Dict]) -> List[Dict]:

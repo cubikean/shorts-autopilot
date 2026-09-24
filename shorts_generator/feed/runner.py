@@ -16,6 +16,7 @@ from ..config import (
     NOTION_VIDEOS_DB,
     SHORTS_PER_DAY,
 )
+from ..highlights import with_creator_tag
 from .notion import STATUS_ERROR, STATUS_READY, STATUS_RUNNING, Notion
 from .sources import load_sources
 from .twitch import discover_twitch
@@ -95,6 +96,7 @@ def process(limit: int = FEED_MAX_PER_RUN) -> None:
                 raise RuntimeError(f"no clip rendered ({errors})")
 
             for short in rendered:
+                short["hashtags"] = with_creator_tag(short.get("hashtags") or [], row["channel"])
                 if row["start"] is not None:
                     # Times are relative to the downloaded window; report them in VOD time.
                     short["start_time"] = float(short["start_time"]) + row["start"]
