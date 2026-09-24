@@ -69,8 +69,15 @@ FEED_MAX_DURATION_MINUTES = float(_env("FEED_MAX_DURATION_MINUTES", "120"))
 FEED_MIN_SCORE = float(_env("FEED_MIN_SCORE", "1.5"))             # YouTube: x times the channel's usual velocity
 FEED_TWITCH_MOMENTS_PER_CHANNEL = int(_env("FEED_TWITCH_MOMENTS_PER_CHANNEL", "3"))
 FEED_TWITCH_MIN_VIEWS = int(_env("FEED_TWITCH_MIN_VIEWS", "50"))
-FEED_MAX_PER_RUN = int(_env("FEED_MAX_PER_RUN", "3"))              # videos rendered per `feed.py process`
-FEED_CLIPS_PER_VIDEO = int(_env("FEED_CLIPS_PER_VIDEO", "3"))
+FEED_MAX_PER_RUN = int(_env("FEED_MAX_PER_RUN", "10"))             # hard cap on videos per `feed.py process`
+FEED_CLIPS_PER_VIDEO = int(_env("FEED_CLIPS_PER_VIDEO", "1"))
+# What the pipeline can publish in a day (publish runs per day x PUBLISH_MAX_PER_RUN).
+# `process` renders only what is missing to reach it, so the Notion queue never outruns publishing.
+SHORTS_PER_DAY = int(_env("SHORTS_PER_DAY", "6"))
+# Shorts go out on their own: new ones are created "Validé" instead of waiting for a manual check.
+SHORTS_AUTO_VALIDATE = _env("SHORTS_AUTO_VALIDATE", "true").lower() in ("1", "true", "yes", "on")
+# Downloads and rendered clips older than this are deleted (a short still waiting to be published is kept).
+MEDIA_RETENTION_DAYS = float(_env("MEDIA_RETENTION_DAYS", "1"))
 
 # Publishing (feed.py publish): shorts marked "Validé" in Notion → each platform.
 PUBLISH_PLATFORMS = [p.strip().lower() for p in _env("PUBLISH_PLATFORMS", "youtube").split(",") if p.strip()]

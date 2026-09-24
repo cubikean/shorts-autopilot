@@ -14,6 +14,7 @@ from ..config import (
     NOTION_SHORTS_DB,
     NOTION_TOKEN,
     NOTION_VIDEOS_DB,
+    SHORTS_PER_DAY,
 )
 from .notion import STATUS_ERROR, STATUS_READY, STATUS_RUNNING, Notion
 from .sources import load_sources
@@ -63,8 +64,15 @@ def process(limit: int = FEED_MAX_PER_RUN) -> None:
     requeued = notion.requeue_running(videos_db)
     if requeued:
         print(f"[feed] {requeued} video(s) left \"En cours\" by an interrupted run put back in the queue")
-    rows = notion.todo(videos_db, limit)
-    print(f"[feed] {len(rows)} video(s) to process")
+    # Render only what publishing can absorb, so the Notion queue doesn't grow faster than the channel.
+    waiting = len(notion.pending_shorts(shorts_db))
+    missing = max(0, SHORTS_PER_DAY - waiting)
+    videos_wanted = min(limit, -(-missing // max(1, FEED_CLIPS_PER_VIDEO)))
+    if not videos_wanted:
+        print(f"[feed] {waiting} short(s) already waiting to be published (target {SHORTS_PER_DAY}/day), nothing to render")
+        return
+    rows = notion.todo(videos_db, videos_wanted)
+    print(f"[feed] {len(rows)} video(s) to process ({waiting} short(s) waiting, target {SHORTS_PER_DAY}/day)")
 
     for row in rows:
         print(f"\n[feed] ▶ {row['platform']} · {row['channel']} · {row['title']}", flush=True)

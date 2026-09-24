@@ -46,7 +46,7 @@ Rules:
 - Never cut mid-sentence or mid-thought — each clip must feel complete and self-contained
 - Clips must not overlap significantly with each other
 - Score 0-100 on viral potential (not general quality)
-- {num_clips_instruction}
+- {num_clips_instruction}. Only the best one is actually published, so rank them honestly: the first must be the single most scroll-stopping moment of the whole video
 - start_time / end_time are integer seconds read from the [seconds] markers
 - "title": max 50 characters. "hook_sentence": the clip's opening line, verbatim. "virality_reason": max 15 words
 - "description": ONE short line. "hashtags": exactly 3 lowercase hashtags, in this order: the creator's name, the game or topic, the vibe (e.g. #drole, #wtf, #emotion); no spaces inside a tag (#shorts is added automatically)

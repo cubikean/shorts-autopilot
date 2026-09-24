@@ -1,6 +1,6 @@
 # Registers the daily feed as Windows scheduled tasks for the current user:
 #   ShortsFeed-Discover  (default 00:00)             python feed.py discover
-#   ShortsFeed-Process   (default 01:00)             python feed.py process   (renders what discover just queued)
+#   ShortsFeed-Process   (default every 12 h from 01:00) python feed.py process (tops the queue up to SHORTS_PER_DAY)
 #   ShortsFeed-Publish   (default every 4 h from 09:00) python feed.py publish
 #   ShortsFeed-Stats     (default 08:00)             python feed.py stats
 # Logs go to output\logs\. Every task also fires at logon, so runs missed while
@@ -12,6 +12,7 @@
 param(
     [string]$DiscoverAt = "00:00",
     [string]$ProcessAt = "01:00",
+    [int]$ProcessEveryHours = 12,
     [string]$PublishFrom = "09:00",
     [int]$PublishEveryHours = 4,
     [string]$StatsAt = "08:00",
@@ -45,7 +46,8 @@ function Register-FeedTask([string]$Name, [string]$Command, $Trigger, [string]$W
 }
 
 Register-FeedTask "ShortsFeed-Discover" "discover" (New-ScheduledTaskTrigger -Daily -At $DiscoverAt) "at $DiscoverAt"
-Register-FeedTask "ShortsFeed-Process" "process" (New-ScheduledTaskTrigger -Daily -At $ProcessAt) "at $ProcessAt"
+$processTrigger = New-ScheduledTaskTrigger -Once -At $ProcessAt -RepetitionInterval (New-TimeSpan -Hours $ProcessEveryHours)
+Register-FeedTask "ShortsFeed-Process" "process" $processTrigger "every $ProcessEveryHours h from $ProcessAt"
 $publishTrigger = New-ScheduledTaskTrigger -Once -At $PublishFrom -RepetitionInterval (New-TimeSpan -Hours $PublishEveryHours)
 Register-FeedTask "ShortsFeed-Publish" "publish" $publishTrigger "every $PublishEveryHours h from $PublishFrom"
 Register-FeedTask "ShortsFeed-Stats" "stats" (New-ScheduledTaskTrigger -Daily -At $StatsAt) "at $StatsAt"

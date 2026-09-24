@@ -10,6 +10,7 @@ Usage:
     python feed.py notify-test            # test phone notification (ntfy)
     python feed.py publish [--limit 1] [--platform youtube] [--dry-run]
     python feed.py stats                  # refresh YouTube / TikTok numbers in the Notion Stats column
+    python feed.py clean [--days 1]       # delete old downloads and published clips
 """
 import argparse
 import os
@@ -44,6 +45,7 @@ if hasattr(sys.stderr, "reconfigure"):
 from shorts_generator.config import (  # noqa: E402
     FEED_MAX_PER_RUN,
     LOCAL_OUTPUT_DIR,
+    MEDIA_RETENTION_DAYS,
     NOTION_SHORTS_DB,
     NOTION_TOKEN,
     PUBLISH_MAX_PER_RUN,
@@ -112,6 +114,11 @@ def main() -> int:
     sub.add_parser("auth-tiktok", help="authorise draft uploads to your TikTok account (opens a browser once)")
     sub.add_parser("notify-test", help="send a test notification to your phone (ntfy)")
 
+    clean = sub.add_parser("clean", help="delete old downloads and published clips from output/")
+    clean.add_argument("--days", type=float, default=MEDIA_RETENTION_DAYS,
+                       help=f"delete media older than this (default {MEDIA_RETENTION_DAYS:g})")
+    clean.add_argument("--dry-run", action="store_true", help="list what would be deleted")
+
     sub.add_parser("stats", help="refresh the Stats column (YouTube and TikTok numbers) of posted shorts")
 
     pub = sub.add_parser("publish", help="upload the shorts marked Validé in Notion")
@@ -164,8 +171,11 @@ def main() -> int:
             if args.dry_run:
                 publish(limit=args.limit, platforms=args.platform, dry_run=True)
             else:
+                from shorts_generator.local.cleanup import purge_quietly
+
                 with single_run("publish"):
                     publish(limit=args.limit, platforms=args.platform)
+                    purge_quietly()
         elif args.command == "stats":
             from shorts_generator.publish.stats import update_stats
 
@@ -181,9 +191,17 @@ def main() -> int:
                     discover()
         elif args.command == "process":
             from shorts_generator.feed.runner import process
+            from shorts_generator.local.cleanup import purge_quietly
 
             with single_run("process"):
                 process(limit=args.limit)
+                purge_quietly()
+        elif args.command == "clean":
+            from shorts_generator.local.cleanup import purge_media
+
+            removed = purge_media(days=args.days, dry_run=args.dry_run)
+            if not removed:
+                print("[clean] nothing to delete")
     except AlreadyRunning as e:
         print(f"[feed] {e}")
         return 0

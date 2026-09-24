@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
+from ..config import SHORTS_AUTO_VALIDATE
+
 API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
 
@@ -206,7 +208,7 @@ class Notion:
                 "Début (s)": {"number": round(float(short["start_time"]), 1)},
                 "Fin (s)": {"number": round(float(short["end_time"]), 1)},
                 "Fichier": _text(short.get("clip_url")),
-                "Publication": _select(PUB_TODO),
+                "Publication": _select(PUB_VALIDATED if SHORTS_AUTO_VALIDATE else PUB_TODO),
                 "Vidéo source": {"relation": [{"id": video_page_id}]},
             },
         })
@@ -244,6 +246,28 @@ class Notion:
         if patch:
             self._request("PATCH", f"databases/{database_id}", {"properties": patch})
         return changes
+
+    def pending_shorts(self, database_id: str) -> List[Dict]:
+        """Shorts rendered but not out yet: what `process` must not pile on top of."""
+        result = self._request("POST", f"databases/{database_id}/query", {
+            "filter": {"or": [{"property": "Publication", "select": {"equals": status}}
+                              for status in (PUB_TODO, PUB_VALIDATED)]},
+            "page_size": 100,
+        })
+        return result.get("results", [])
+
+    def unpublished_files(self, database_id: str) -> List[str]:
+        """Clip paths still needed: anything not published yet must survive the media purge."""
+        files, cursor = [], None
+        while True:
+            body = {"filter": {"property": "Publication", "select": {"does_not_equal": PUB_PUBLISHED}}, "page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            result = self._request("POST", f"databases/{database_id}/query", body)
+            files += [_plain(page["properties"]["Fichier"]) for page in result.get("results", [])]
+            if not result.get("has_more"):
+                return [f for f in files if f]
+            cursor = result["next_cursor"]
 
     def validated_shorts(self, database_id: str, link_columns: List[str], limit: int) -> List[Dict]:
         """Shorts marked Validé, earliest scheduled date first, then best score."""

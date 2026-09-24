@@ -2,14 +2,18 @@
 
 Pipeline automatique de shorts : repère les vidéos qui décollent sur une liste
 de chaînes YouTube / Twitch, en extrait les meilleurs moments en 9:16 sous-titrés,
-les range dans Notion pour validation, puis publie sur YouTube ceux que tu valides.
+les range dans Notion, puis les publie tout seul sur YouTube et TikTok.
 
 ```
-00h00  discover  → Notion « Vidéos à traiter »   (vidéos virales repérées)
-01h00  process   → Notion « Shorts » À publier   (mp4 + titre, description, hashtags)
- toi             → Publication = Validé
-/4 h   publish   → YouTube                        (lien écrit dans Notion, statut Publié)
+00h00   discover  → Notion « Vidéos à traiter »  (vidéos virales repérées)
+/12 h   process   → Notion « Shorts » Validé     (1 short par vidéo, prêt à partir)
+/4 h    publish   → YouTube + TikTok             (lien écrit dans Notion, statut Publié)
 ```
+
+Le rythme est piloté par `SHORTS_PER_DAY` (6 par défaut) : `publish` sort un short
+par passage, et `process` ne fabrique que ce qui manque pour tenir ce rythme. La file
+Notion ne gonfle donc jamais. Les fichiers de plus d'un jour sont supprimés
+automatiquement (les shorts pas encore publiés sont conservés).
 
 > Ne liste que des chaînes que tu as le droit de clipper (programmes de clipping,
 > tes propres chaînes, accord écrit). Sinon : Content ID et démonétisation
@@ -116,7 +120,7 @@ powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1
 | Tâche | Quand | Rôle |
 |---|---|---|
 | `ShortsFeed-Discover` | 00h00 | cherche les nouvelles vidéos virales |
-| `ShortsFeed-Process` | 01h00 | génère les shorts des vidéos trouvées juste avant |
+| `ShortsFeed-Process` | 01h, 13h | complète la file de shorts jusqu'à `SHORTS_PER_DAY` |
 | `ShortsFeed-Publish` | 09h, 13h, 17h, 21h, 01h, 05h | publie les shorts validés (`PUBLISH_MAX_PER_RUN` par passage) |
 | `ShortsFeed-Stats` | 08h00 | met à jour la colonne **Stats** (vues, j'aime, commentaires, partages) |
 
@@ -135,6 +139,7 @@ Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 | `python feed.py publish --dry-run` | liste ce qui serait publié |
 | `python feed.py publish --limit 1` | publie les shorts validés |
 | `python feed.py stats` | met à jour les stats YouTube / TikTok dans Notion |
+| `python feed.py clean --dry-run` | liste les vidéos et clips à supprimer (plus d'un jour) |
 
 Pour tester un upload sans le rendre public :
 `$env:YOUTUBE_PRIVACY="private"; python feed.py publish`
@@ -167,13 +172,14 @@ Passe une vidéo en *Rejeté* pour qu'elle ne soit jamais traitée.
 
 | Statut | Signification |
 |---|---|
-| À publier | généré, en attente de ta relecture |
-| **Validé** | à toi de le mettre : il partira au prochain `publish` |
+| **Validé** | état de départ : le short partira au prochain `publish` (mets `SHORTS_AUTO_VALIDATE=false` pour relire avant) |
+| À publier | en attente de ta relecture (seulement si tu as désactivé la validation auto) |
 | Publié | fait sur toutes les plateformes : lien dans **YouTube**, lien de ton profil dans **TikTok** (brouillon à finaliser dans l'app) |
 | Erreur | échec, raison dans *Erreur publication* ; remets *Validé* pour réessayer |
 | Rejeté | ignoré |
 
-Tu peux modifier les textes dans Notion avant de valider : c'est ce qui est publié.
+Les textes sont relus dans Notion au moment de publier : les modifier là suffit.
+Passe un short en *Rejeté* pour qu'il ne sorte jamais.
 Une **Date de publication** dans le futur programme la sortie sur YouTube.
 
 **Stats** : chaque matin, la colonne *Stats* de chaque short publié reçoit une ligne
@@ -225,7 +231,10 @@ Tout est documenté dans `.env.example`. Les plus utiles :
 | `LOCAL_WHISPER_DEVICE` | `auto` | `auto` (GPU si dispo), `cpu`, `cuda` |
 | `SUBTITLE_FONT` / `SUBTITLE_POSITION` | `Arial Black` / `0.70` | police et hauteur des sous-titres (0 = haut, 1 = bas) |
 | `FEED_MIN_SCORE` | `1.5` | seuil de viralité YouTube (0 = toutes les nouvelles vidéos) |
-| `FEED_MAX_PER_RUN` / `FEED_CLIPS_PER_VIDEO` | `3` / `3` | vidéos traitées par nuit, shorts par vidéo |
+| `SHORTS_PER_DAY` | `6` | shorts publiés par jour ; `process` s'aligne dessus |
+| `SHORTS_AUTO_VALIDATE` | `true` | `false` pour repasser en validation manuelle dans Notion |
+| `MEDIA_RETENTION_DAYS` | `1` | âge à partir duquel les vidéos et clips sont supprimés |
+| `FEED_MAX_PER_RUN` / `FEED_CLIPS_PER_VIDEO` | `10` / `1` | plafond de vidéos par passage, shorts par vidéo |
 | `PUBLISH_MAX_PER_RUN` | `1` | shorts publiés par passage |
 | `YOUTUBE_PRIVACY` | `public` | `public`, `unlisted` ou `private` |
 | `YOUTUBE_CATEGORY_ID` | `24` | 24 Divertissement, 20 Jeux vidéo, 23 Humour |
