@@ -113,9 +113,11 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
             if len(skipped) == len(names):
                 return
             continue
-        if not post.file.exists():
-            print(f"[publish] ✘ file not found: {post.file}", flush=True)
-            notion.set_publication(post.page_id, PUB_ERROR, f"Fichier introuvable : {post.file}")
+        # is_file(), not exists(): an empty "Fichier" cell resolves to the repo root.
+        if not row["file"].strip() or not post.file.is_file():
+            missing = row["file"].strip() or "(colonne Fichier vide)"
+            print(f"[publish] ✘ file not found: {missing}", flush=True)
+            notion.set_publication(post.page_id, PUB_ERROR, f"Fichier introuvable : {missing}")
             continue
 
         failure = None
