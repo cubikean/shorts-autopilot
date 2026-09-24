@@ -7,25 +7,28 @@ still needs (not published yet) is kept, whatever its age.
 import os
 import time
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from ..config import LOCAL_OUTPUT_DIR, MEDIA_RETENTION_DAYS, NOTION_SHORTS_DB, NOTION_TOKEN
 
 MEDIA_SUFFIXES = {".mp4", ".mkv", ".webm", ".m4a", ".wav"}
 
 
-def _keep() -> Set[str]:
-    """Clip paths of shorts that still have to go out (empty when Notion is unreachable)."""
+def _notion_files() -> Tuple[Set[str], Set[str]]:
+    """(clips to keep, clips already published) — empty when Notion isn't configured."""
     if not (NOTION_TOKEN and NOTION_SHORTS_DB):
-        return set()
+        return set(), set()
     from ..feed.notion import Notion
 
+    notion = Notion(NOTION_TOKEN)
+    resolve = lambda files: {str(Path(f).resolve()) for f in files}  # noqa: E731
     try:
-        files = Notion(NOTION_TOKEN).unpublished_files(NOTION_SHORTS_DB)
+        keep = resolve(notion.files_by_state(NOTION_SHORTS_DB, published=False))
+        done = resolve(notion.files_by_state(NOTION_SHORTS_DB, published=True))
     except Exception as e:  # never let housekeeping break the run that called it
         print(f"[clean] skipped: could not read Notion ({e})", flush=True)
         raise
-    return {str(Path(f).resolve()) for f in files}
+    return keep, done - keep
 
 
 def purge_media(days: float = MEDIA_RETENTION_DAYS, dry_run: bool = False) -> List[Path]:
@@ -34,15 +37,19 @@ def purge_media(days: float = MEDIA_RETENTION_DAYS, dry_run: bool = False) -> Li
     if not root.exists():
         return []
     try:
-        keep = _keep()
+        keep, published = _notion_files()
     except Exception:
-        return []  # _keep() already explained why; deleting blind could drop a pending short
+        return []  # _notion_files() already explained why; deleting blind could drop a pending short
     cutoff = time.time() - days * 86400
     removed, freed = [], 0
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in MEDIA_SUFFIXES:
             continue
-        if str(path.resolve()) in keep or path.stat().st_mtime > cutoff:
+        resolved = str(path.resolve())
+        if resolved in keep:
+            continue
+        # A published clip is dead weight straight away; everything else waits out its retention.
+        if resolved not in published and path.stat().st_mtime > cutoff:
             continue
         size = path.stat().st_size
         if not dry_run:
@@ -53,6 +60,10 @@ def purge_media(days: float = MEDIA_RETENTION_DAYS, dry_run: bool = False) -> Li
                 continue
         removed.append(path)
         freed += size
+    if not dry_run:
+        for folder in sorted(root.rglob("*"), key=lambda f: len(f.parts), reverse=True):
+            if folder.is_dir() and not any(folder.iterdir()):
+                folder.rmdir()
     if removed:
         verb = "would free" if dry_run else "freed"
         print(f"[clean] {len(removed)} file(s) older than {days:g} day(s), {verb} {freed / 1e9:.2f} GB", flush=True)

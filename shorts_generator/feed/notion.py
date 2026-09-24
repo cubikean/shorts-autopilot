@@ -256,11 +256,12 @@ class Notion:
         })
         return result.get("results", [])
 
-    def unpublished_files(self, database_id: str) -> List[str]:
-        """Clip paths still needed: anything not published yet must survive the media purge."""
+    def files_by_state(self, database_id: str, published: bool) -> List[str]:
+        """Clip paths of shorts already out (published=True) or still to come (False)."""
+        operator = "equals" if published else "does_not_equal"
         files, cursor = [], None
         while True:
-            body = {"filter": {"property": "Publication", "select": {"does_not_equal": PUB_PUBLISHED}}, "page_size": 100}
+            body = {"filter": {"property": "Publication", "select": {operator: PUB_PUBLISHED}}, "page_size": 100}
             if cursor:
                 body["start_cursor"] = cursor
             result = self._request("POST", f"databases/{database_id}/query", body)
