@@ -5,13 +5,19 @@ de chaînes YouTube / Twitch, en extrait les meilleurs moments en 9:16 sous-titr
 les range dans Notion, puis les publie tout seul sur YouTube et TikTok.
 
 ```
-00h00   discover  → Notion « Vidéos à traiter »  (vidéos virales repérées)
+/2 h    watch     → si une vidéo vient de sortir : rendu + publication immédiats
 /12 h   process   → Notion « Shorts » Validé     (1 short par vidéo, prêt à partir)
 /4 h    publish   → YouTube + TikTok             (lien écrit dans Notion, statut Publié)
 ```
 
+**Voie rapide** : toutes les 2 h, `watch` cherche de nouvelles vidéos. S'il en trouve
+une, elle court-circuite les horaires fixes : rendue et publiée dans la foulée
+(brouillon TikTok + notification sur ton téléphone avec le lien). S'il n'y a rien de
+neuf, il ne fait rien et laisse les passages habituels travailler.
+
 Le rythme est piloté par `SHORTS_PER_DAY` (6 par défaut) : `publish` sort un short
-par passage, et `process` ne fabrique que ce qui manque pour tenir ce rythme. La file
+par passage, et `process` ne fabrique que ce qui manque pour tenir ce rythme. La voie
+rapide partage ce budget : jamais plus de `SHORTS_PER_DAY` publications par jour. La file
 Notion ne gonfle donc jamais. Les fichiers de plus d'un jour sont supprimés
 automatiquement (les shorts pas encore publiés sont conservés).
 
@@ -119,12 +125,12 @@ powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1
 
 | Tâche | Quand | Rôle |
 |---|---|---|
-| `ShortsFeed-Discover` | 00h00 | cherche les nouvelles vidéos virales |
+| `ShortsFeed-Watch` | toutes les 2 h | cherche du neuf ; si oui, rend et publie immédiatement |
 | `ShortsFeed-Process` | 01h, 13h | complète la file de shorts jusqu'à `SHORTS_PER_DAY` |
 | `ShortsFeed-Publish` | 09h, 13h, 17h, 21h, 01h, 05h | publie les shorts validés (`PUBLISH_MAX_PER_RUN` par passage) |
 | `ShortsFeed-Stats` | 08h00 | met à jour la colonne **Stats** (vues, j'aime, commentaires, partages) |
 
-Les horaires se changent en paramètres du script (`-DiscoverAt`, `-ProcessAt`,
+Les horaires se changent en paramètres du script (`-WatchEveryHours`, `-ProcessAt`,
 `-PublishFrom`, `-PublishEveryHours`). Le PC doit être allumé avec ta session
 ouverte (il est réveillé de la veille). Logs : `output\logs\`.
 Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
@@ -135,6 +141,7 @@ Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 |---|---|
 | `python feed.py discover --dry-run` | affiche les candidats sans rien écrire |
 | `python feed.py discover` | ajoute les nouvelles vidéos dans Notion |
+| `python feed.py watch` | voie rapide : publie tout de suite ce qui vient de sortir |
 | `python feed.py process --limit 3` | génère les shorts des meilleures vidéos en file |
 | `python feed.py publish --dry-run` | liste ce qui serait publié |
 | `python feed.py publish --limit 1` | publie les shorts validés |

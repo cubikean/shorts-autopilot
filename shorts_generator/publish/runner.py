@@ -7,16 +7,46 @@ Notion workflow on the Shorts database:
 A platform that can't start (missing token) or runs out of quota is skipped for
 the rest of the run; the others carry on and the short stays "Validé" until all are done.
 """
+import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ..config import NOTION_SHORTS_DB, NOTION_TOKEN, PUBLISH_MAX_PER_RUN, PUBLISH_PLATFORMS
+from ..config import (
+    LOCAL_OUTPUT_DIR,
+    NOTION_SHORTS_DB,
+    NOTION_TOKEN,
+    PUBLISH_MAX_PER_RUN,
+    PUBLISH_PLATFORMS,
+    SHORTS_PER_DAY,
+)
 from ..feed.notion import PUB_ERROR, PUB_PUBLISHED, Notion
 from .base import Publisher, QuotaExceeded, ShortPost
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# How many shorts went out each day: the scheduled runs and the every-2h fast lane
+# share one daily budget, so a busy day can't burn through the YouTube upload quota.
+PUBLISH_LOG = Path(LOCAL_OUTPUT_DIR) / "publish_log.json"
+
+
+def _log_read() -> Dict[str, int]:
+    try:
+        return json.loads(PUBLISH_LOG.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def published_today() -> int:
+    return int(_log_read().get(date.today().isoformat(), 0))
+
+
+def _record_published() -> None:
+    log = _log_read()
+    today = date.today().isoformat()
+    log[today] = log.get(today, 0) + 1
+    PUBLISH_LOG.parent.mkdir(parents=True, exist_ok=True)
+    PUBLISH_LOG.write_text(json.dumps(dict(sorted(log.items())[-14:]), indent=1), encoding="utf-8")
 
 
 def _youtube() -> Publisher:
@@ -63,7 +93,9 @@ def _post(row: Dict) -> ShortPost:
     )
 
 
-def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = None, dry_run: bool = False) -> None:
+def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = None,
+            dry_run: bool = False) -> List[Dict]:
+    """Upload up to `limit` validated shorts. Returns what went out, newest first."""
     names = platforms or PUBLISH_PLATFORMS
     # A short is Publié only once every enabled platform has it, even when --platform narrows the run.
     required = list(dict.fromkeys([*PUBLISH_PLATFORMS, *names]))
@@ -73,12 +105,20 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
     if not NOTION_SHORTS_DB:
         raise RuntimeError("NOTION_SHORTS_DB is not set. Run `python feed.py setup-notion <page>` and add the ids to .env.")
 
+    if not dry_run:
+        budget = SHORTS_PER_DAY - published_today()
+        if budget <= 0:
+            print(f"[publish] {SHORTS_PER_DAY} short(s) already published today, waiting for tomorrow")
+            return []
+        limit = min(limit, budget)
+
     notion = Notion(NOTION_TOKEN)
     # Fetch past the limit: a short blocked on one platform (quota) mustn't starve the others.
     rows = notion.validated_shorts(NOTION_SHORTS_DB, link_columns(required), 100)
     print(f"[publish] {len(rows)} validated short(s) to publish on {', '.join(names)} (up to {limit} this run)")
     if not rows:
-        return
+        return []
+    published: List[Dict] = []
 
     clients: Dict[str, Publisher] = {}
     skipped: Dict[str, str] = {}  # platform → why it sits out the rest of this run
@@ -91,6 +131,7 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
                 print(f"[publish] {name} unavailable this run: {e}", flush=True)
         if not clients:
             raise RuntimeError("no platform available: " + "; ".join(f"{n}: {why}" for n, why in skipped.items()))
+
 
     handled = 0  # shorts that had an upload attempted; only these count toward the limit
     for row in rows:
@@ -111,7 +152,7 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
         if not runnable:
             print(f"[publish]   waiting: {', '.join(pending)} unavailable this run", flush=True)
             if len(skipped) == len(names):
-                return
+                return published
             continue
         # is_file(), not exists(): an empty "Fichier" cell resolves to the repo root.
         if not row["file"].strip() or not post.file.is_file():
@@ -122,6 +163,7 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
 
         failure = None
         attempted = False
+        links: Dict[str, str] = {}
         for name in runnable:
             try:
                 url = clients[name].publish(post)
@@ -137,10 +179,14 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
             attempted = True
             # Saved per platform right away, so a later failure never re-uploads this one.
             notion.set_link(post.page_id, PLATFORMS[name][0], url)
+            links[name] = url
             done.add(name)
             print(f"[publish]   {name}: {url}", flush=True)
         handled += attempted
 
+        if links:
+            published.append({"title": post.title, "links": links})
+            _record_published()
         if failure:
             notion.set_publication(post.page_id, PUB_ERROR, failure[:1900])
         elif all(name in done for name in required):
@@ -148,3 +194,4 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
             print("[publish] ✔ published", flush=True)
         else:
             print(f"[publish]   still waiting for: {', '.join(n for n in required if n not in done)}", flush=True)
+    return published

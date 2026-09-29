@@ -30,6 +30,7 @@ def _require_db(value: str, name: str) -> str:
 
 
 def discover(dry_run: bool = False) -> List[Dict]:
+    """Queue fresh viral videos in Notion. Returns the ones just added (all candidates on a dry run)."""
     sources = load_sources(FEED_SOURCES_FILE)
     now = datetime.now(timezone.utc)
     candidates = discover_youtube(sources["youtube"], now) + discover_twitch(sources["twitch"], now)
@@ -54,7 +55,7 @@ def discover(dry_run: bool = False) -> List[Dict]:
     return candidates
 
 
-def process(limit: int = FEED_MAX_PER_RUN) -> None:
+def process(limit: int = FEED_MAX_PER_RUN, ignore_daily_target: bool = False) -> None:
     from ..local.downloader import download_section_local
     from ..pipeline import generate_shorts
 
@@ -68,7 +69,7 @@ def process(limit: int = FEED_MAX_PER_RUN) -> None:
     # Render only what publishing can absorb, so the Notion queue doesn't grow faster than the channel.
     waiting = len(notion.pending_shorts(shorts_db))
     missing = max(0, SHORTS_PER_DAY - waiting)
-    videos_wanted = min(limit, -(-missing // max(1, FEED_CLIPS_PER_VIDEO)))
+    videos_wanted = limit if ignore_daily_target else min(limit, -(-missing // max(1, FEED_CLIPS_PER_VIDEO)))
     if not videos_wanted:
         print(f"[feed] {waiting} short(s) already waiting to be published (target {SHORTS_PER_DAY}/day), nothing to render")
         return
@@ -119,3 +120,26 @@ def process(limit: int = FEED_MAX_PER_RUN) -> None:
         except Exception as e:
             print(f"[feed] ✘ {e}", flush=True)
             notion.set_status(row["page_id"], STATUS_ERROR, str(e)[:1900])
+
+
+def watch() -> None:
+    """Every couple of hours: a video that just blew up skips the queue.
+
+    Found something fresh? Render and publish it right away (TikTok draft + phone
+    notification included). Found nothing? Leave it to the scheduled process/publish runs.
+    """
+    from .. import notify
+    from ..publish.runner import publish
+
+    fresh = discover()
+    if not fresh:
+        print("[watch] nothing new; the scheduled runs keep the usual pace")
+        return
+
+    print(f"[watch] {len(fresh)} fresh video(s): rendering and publishing now", flush=True)
+    process(limit=len(fresh), ignore_daily_target=True)
+    published = publish(limit=len(fresh))
+    for short in published:
+        links = " · ".join(f"{name}: {url}" for name, url in short["links"].items())
+        notify.send(f"En ligne : {short['title']}"[:200], links or "publié",
+                    open_url=short["links"].get("youtube"), open_label="Voir sur YouTube")

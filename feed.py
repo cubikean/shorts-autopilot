@@ -3,6 +3,7 @@
 Usage:
     python feed.py setup-notion "<Notion page URL shared with your integration>"
     python feed.py discover [--dry-run]
+    python feed.py watch                  # every 2h: a fresh video is rendered and published at once
     python feed.py process [--limit 3]
     python feed.py setup-publish          # add publishing columns to an existing Shorts database
     python feed.py auth-youtube           # one-time OAuth consent for the upload channel
@@ -106,6 +107,8 @@ def main() -> int:
     disc = sub.add_parser("discover", help="find fresh viral videos and queue them in Notion")
     disc.add_argument("--dry-run", action="store_true", help="print candidates without writing to Notion")
 
+    sub.add_parser("watch", help="discover, and fast-track anything new straight to publication")
+
     proc = sub.add_parser("process", help="render shorts for the top queued videos")
     proc.add_argument("--limit", type=int, default=FEED_MAX_PER_RUN, help=f"videos per run (default {FEED_MAX_PER_RUN})")
 
@@ -189,6 +192,15 @@ def main() -> int:
             else:
                 with single_run("discover"):
                     discover()
+        elif args.command == "watch":
+            from shorts_generator.feed.runner import watch
+            from shorts_generator.local.cleanup import purge_quietly
+
+            # Shares the process/publish locks through the steps it calls, so a scheduled
+            # run and the fast lane never render or upload the same short twice.
+            with single_run("process"), single_run("publish"):
+                watch()
+                purge_quietly()
         elif args.command == "process":
             from shorts_generator.feed.runner import process
             from shorts_generator.local.cleanup import purge_quietly

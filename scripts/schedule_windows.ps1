@@ -1,5 +1,5 @@
 # Registers the daily feed as Windows scheduled tasks for the current user:
-#   ShortsFeed-Discover  (default 00:00)             python feed.py discover
+#   ShortsFeed-Watch     (default every 2 h)         python feed.py watch (new video -> rendered and published at once)
 #   ShortsFeed-Process   (default every 12 h from 01:00) python feed.py process (tops the queue up to SHORTS_PER_DAY)
 #   ShortsFeed-Publish   (default every 4 h from 09:00) python feed.py publish
 #   ShortsFeed-Stats     (default 08:00)             python feed.py stats
@@ -10,7 +10,8 @@
 # -RunWhenLoggedOff registers the tasks to run even with no session open. It needs
 # an ELEVATED PowerShell, and the Claude Code CLI must work outside your session.
 param(
-    [string]$DiscoverAt = "00:00",
+    [string]$WatchFrom = "00:00",
+    [int]$WatchEveryHours = 2,
     [string]$ProcessAt = "01:00",
     [int]$ProcessEveryHours = 12,
     [string]$PublishFrom = "09:00",
@@ -45,9 +46,13 @@ function Register-FeedTask([string]$Name, [string]$Command, $Trigger, [string]$W
     Write-Host "Registered $Name $When + at logon (log: $log)"
 }
 
-Register-FeedTask "ShortsFeed-Discover" "discover" (New-ScheduledTaskTrigger -Daily -At $DiscoverAt) "at $DiscoverAt"
+$watchTrigger = New-ScheduledTaskTrigger -Once -At $WatchFrom -RepetitionInterval (New-TimeSpan -Hours $WatchEveryHours)
+Register-FeedTask "ShortsFeed-Watch" "watch" $watchTrigger "every $WatchEveryHours h from $WatchFrom"
 $processTrigger = New-ScheduledTaskTrigger -Once -At $ProcessAt -RepetitionInterval (New-TimeSpan -Hours $ProcessEveryHours)
 Register-FeedTask "ShortsFeed-Process" "process" $processTrigger "every $ProcessEveryHours h from $ProcessAt"
 $publishTrigger = New-ScheduledTaskTrigger -Once -At $PublishFrom -RepetitionInterval (New-TimeSpan -Hours $PublishEveryHours)
 Register-FeedTask "ShortsFeed-Publish" "publish" $publishTrigger "every $PublishEveryHours h from $PublishFrom"
 Register-FeedTask "ShortsFeed-Stats" "stats" (New-ScheduledTaskTrigger -Daily -At $StatsAt) "at $StatsAt"
+
+# The 2-hourly watch task took over from the nightly discover one.
+Unregister-ScheduledTask -TaskName "ShortsFeed-Discover" -Confirm:$false -ErrorAction SilentlyContinue
