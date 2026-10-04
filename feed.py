@@ -186,8 +186,11 @@ def main() -> int:
             from shorts_generator.publish.runner import pending_tiktok_drafts
 
             waiting = pending_tiktok_drafts()
-            print("\n".join(f"  {title}" for title in waiting) if waiting else "No TikTok draft waiting.")
-            print(f"{len(waiting)} draft(s) waiting; TikTok blocks new ones past 5 pending.")
+            for rank, (day, title) in enumerate(waiting):
+                # TikTok counts the 5 newest; the others have aged out of its pending window.
+                print(f"  {day}  {'BLOQUE' if rank < 5 else 'expiré'}  {title}")
+            print(f"{len(waiting)} draft(s) never posted; the 5 newest are what TikTok counts."
+                  if waiting else "No TikTok draft waiting.")
         elif args.command == "stats":
             from shorts_generator.publish.stats import update_stats
 

@@ -21,7 +21,7 @@ from ..config import (
     PUBLISH_PLATFORMS,
     SHORTS_PER_DAY,
 )
-from ..feed.notion import PUB_ERROR, PUB_PUBLISHED, Notion
+from ..feed.notion import PUB_ERROR, PUB_PUBLISHED, Notion, _plain
 from .base import Publisher, QuotaExceeded, ShortPost
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -202,15 +202,27 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
     return published
 
 
-def pending_tiktok_drafts() -> List[str]:
-    """Drafts we sent that never got posted: TikTok counts them against the 5-pending cap.
+def pending_tiktok_drafts() -> List[Tuple[str, str]]:
+    """(sent date, title) of drafts that never got posted, newest first.
 
     The API can't list them, so they are the shorts with a TikTok link whose caption
-    is nowhere among your public videos.
+    is nowhere among your public videos. TikTok counts the 5 most recent against its
+    pending cap; older ones stop counting after a few days.
     """
     from .tiktok import TikTokPublisher, _normalise
 
-    rows = Notion(NOTION_TOKEN).shorts_with_links(NOTION_SHORTS_DB, ["TikTok"])
-    sent = [row["title"] for row in rows if row["links"].get("TikTok")]
+    notion = Notion(NOTION_TOKEN)
+    rows, cursor = [], None
+    while True:
+        body = {"filter": {"property": "TikTok", "url": {"is_not_empty": True}}, "page_size": 100,
+                "sorts": [{"timestamp": "created_time", "direction": "descending"}]}
+        if cursor:
+            body["start_cursor"] = cursor
+        result = notion._request("POST", f"databases/{NOTION_SHORTS_DB}/query", body)
+        rows += [(page["created_time"][:10], _plain(page["properties"]["Titre"])) for page in result["results"]]
+        if not result.get("has_more"):
+            break
+        cursor = result["next_cursor"]
     public = [_normalise(v.get("video_description")) for v in TikTokPublisher()._list_videos()]
-    return [t for t in sent if not any(d.startswith(_normalise(t)[:25]) for d in public if d)]
+    return [(day, title) for day, title in rows
+            if not any(d.startswith(_normalise(title)[:25]) for d in public if d)]

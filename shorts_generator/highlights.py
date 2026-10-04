@@ -45,6 +45,8 @@ Rules:
 - Duration sweet spot: 45-90 seconds. Go shorter (20-44s) only for a perfect standalone one-liner. Go longer (91-180s) only when a story arc needs full context to land
 - Never cut mid-sentence or mid-thought — each clip must feel complete and self-contained
 - Clips must not overlap significantly with each other
+- Skip moments built on accusing someone of a crime, threats of violence, or a stream of insults
+  aimed at a person: they don't get posted, and they put the account at risk
 - Score 0-100 on viral potential (not general quality)
 - {num_clips_instruction}. Only the best one is actually published, so rank them honestly: the first must be the single most scroll-stopping moment of the whole video
 - start_time / end_time are integer seconds read from the [seconds] markers
