@@ -30,21 +30,24 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PUBLISH_LOG = Path(LOCAL_OUTPUT_DIR) / "publish_log.json"
 
 
-def _log_read() -> Dict[str, int]:
+def _log_read() -> Dict[str, Dict[str, int]]:
     try:
-        return json.loads(PUBLISH_LOG.read_text(encoding="utf-8"))
+        log = json.loads(PUBLISH_LOG.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    # Counts used to be a single number per day, when both platforms shared one budget.
+    return {day: ({"youtube": value} if isinstance(value, int) else value) for day, value in log.items()}
 
 
-def published_today() -> int:
-    return int(_log_read().get(date.today().isoformat(), 0))
+def published_today() -> Dict[str, int]:
+    """How many shorts each platform has already taken today."""
+    return _log_read().get(date.today().isoformat(), {})
 
 
-def _record_published() -> None:
+def _record_published(platform: str) -> None:
     log = _log_read()
-    today = date.today().isoformat()
-    log[today] = log.get(today, 0) + 1
+    today = log.setdefault(date.today().isoformat(), {})
+    today[platform] = today.get(platform, 0) + 1
     PUBLISH_LOG.parent.mkdir(parents=True, exist_ok=True)
     PUBLISH_LOG.write_text(json.dumps(dict(sorted(log.items())[-14:]), indent=1), encoding="utf-8")
 
@@ -105,13 +108,6 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
     if not NOTION_SHORTS_DB:
         raise RuntimeError("NOTION_SHORTS_DB is not set. Run `python feed.py setup-notion <page>` and add the ids to .env.")
 
-    if not dry_run:
-        budget = SHORTS_PER_DAY - published_today()
-        if budget <= 0:
-            print(f"[publish] {SHORTS_PER_DAY} short(s) already published today, waiting for tomorrow")
-            return []
-        limit = min(limit, budget)
-
     notion = Notion(NOTION_TOKEN)
     # Fetch past the limit: a short blocked on one platform (quota) mustn't starve the others.
     rows = notion.validated_shorts(NOTION_SHORTS_DB, link_columns(required), 100)
@@ -123,7 +119,15 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
     clients: Dict[str, Publisher] = {}
     skipped: Dict[str, str] = {}  # platform → why it sits out the rest of this run
     if not dry_run:
+        # One budget per platform: YouTube's upload quota must not hold back TikTok drafts.
+        used = published_today()
         for name in names:
+            if used.get(name, 0) >= SHORTS_PER_DAY:
+                skipped[name] = f"{SHORTS_PER_DAY} short(s) already published today"
+                print(f"[publish] {name} done for today ({used[name]}/{SHORTS_PER_DAY})", flush=True)
+        if len(skipped) == len(names):
+            return []
+        for name in [n for n in names if n not in skipped]:
             try:
                 clients[name] = PLATFORMS[name][1]()
             except Exception as e:
@@ -186,7 +190,8 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
 
         if links:
             published.append({"title": post.title, "links": links})
-            _record_published()
+            for name in links:
+                _record_published(name)
         if failure:
             notion.set_publication(post.page_id, PUB_ERROR, failure[:1900])
         elif all(name in done for name in required):

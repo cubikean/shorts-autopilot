@@ -271,13 +271,10 @@ class Notion:
             cursor = result["next_cursor"]
 
     def validated_shorts(self, database_id: str, link_columns: List[str], limit: int) -> List[Dict]:
-        """Shorts marked Validé, earliest scheduled date first, then best score."""
+        """Shorts marked Validé, freshest first: a clip loses its punch as it ages."""
         result = self._request("POST", f"databases/{database_id}/query", {
             "filter": {"property": "Publication", "select": {"equals": PUB_VALIDATED}},
-            "sorts": [
-                {"property": "Date de publication", "direction": "ascending"},
-                {"property": "Score", "direction": "descending"},
-            ],
+            "sorts": [{"timestamp": "created_time", "direction": "descending"}],
             "page_size": max(1, min(limit, 100)),
         })
         return [self._short_row(page, link_columns) for page in result.get("results", [])]
