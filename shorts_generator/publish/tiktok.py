@@ -46,8 +46,7 @@ AUTH_TIMEOUT_SECONDS = 300
 # Ledger of the drafts we sent, so a run knows how many still sit in the inbox
 # (TikTok allows 5 per 24 h) and when the next slot frees up.
 DRAFT_LOG = Path(LOCAL_OUTPUT_DIR) / "tiktok_drafts.json"
-PENDING_DRAFT_LIMIT = 5
-DRAFT_WINDOW_SECONDS = 24 * 3600
+DRAFT_WINDOW_SECONDS = 7 * 24 * 3600  # stop tracking a draft nobody ever opened
 
 
 def _drafts_read() -> List[Dict]:
@@ -62,10 +61,13 @@ def _drafts_write(drafts: List[Dict]) -> None:
     DRAFT_LOG.write_text(json.dumps(drafts, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def _slot_time(drafts: List[Dict]) -> str:
-    """When the oldest pending draft leaves the 24 h window, as local HH:MM."""
-    oldest = min((d.get("sent_at", 0) for d in drafts), default=time.time())
-    return time.strftime("%d/%m %H:%M", time.localtime(oldest + DRAFT_WINDOW_SECONDS))
+def _since(drafts: List[Dict]) -> str:
+    """How long the oldest tracked draft has been waiting, for the log and the phone."""
+    oldest = min((d.get("sent_at", 0) for d in drafts), default=0)
+    if not oldest:
+        return "inconnu"
+    hours = (time.time() - oldest) / 3600
+    return f"{hours:.0f} h" if hours >= 1 else "moins d'une heure"
 
 
 def _redirect_uri() -> str:
@@ -231,15 +233,15 @@ class TikTokPublisher(Publisher):
         raise RuntimeError(f"TikTok {path} failed [{resp.status_code} {code}]: {error.get('message')}")
 
     def _inbox_full_message(self, pending: List[Dict]) -> str:
-        """Tell the phone (and the log) why nothing goes out and when it will."""
-        slot = _slot_time(pending) if pending else "sous 24 h"
+        """Nothing frees the cap but posting the drafts, so say exactly that."""
+        waiting = f"{len(pending)} suivi(s), le plus ancien depuis {_since(pending)}" if pending else "non suivis"
         notify.send(
             "TikTok bloqué : 5 brouillons en attente",
-            f"Publie des brouillons dans ta boîte TikTok pour débloquer les envois. "
-            f"Sinon, créneau libre le {slot}.",
+            "Ouvre ta boîte de réception TikTok et publie les brouillons : les envois "
+            f"reprennent dès qu'une place est libre ({waiting}).",
             open_url="https://www.tiktok.com/", open_label="Ouvrir TikTok",
         )
-        return f"TikTok: 5 drafts pending in the app — post some, or wait until {slot}"
+        return "TikTok: 5 drafts pending in the app — publish them to free a slot"
 
     def pending_drafts(self) -> List[Dict]:
         """Drafts still waiting in the inbox: states are re-checked, posted and expired ones drop out."""
@@ -304,10 +306,10 @@ class TikTokPublisher(Publisher):
         return stats
 
     def publish(self, post: ShortPost) -> str:
+        # Only TikTok knows the real count (drafts sent before this ledger existed still count),
+        # so we always try and let the API refuse.
         pending = self.pending_drafts()
-        if len(pending) >= PENDING_DRAFT_LIMIT:
-            raise QuotaExceeded(self._inbox_full_message(pending))
-        print(f"[publish/tiktok]   {len(pending)}/{PENDING_DRAFT_LIMIT} draft(s) pending in your inbox", flush=True)
+        print(f"[publish/tiktok]   {len(pending)} tracked draft(s) still waiting in your inbox", flush=True)
         size = post.file.stat().st_size
         # A single chunk must declare chunk_size == video_size: an 11.7 MB file sent as
         # "10 MB x 1 chunk" is rejected with "The chunk size is invalid".
