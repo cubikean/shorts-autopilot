@@ -2,7 +2,7 @@
 internal integration token — no Notion SDK needed)."""
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import requests
@@ -257,11 +257,15 @@ class Notion:
         return result.get("results", [])
 
     def files_by_state(self, database_id: str, published: bool) -> List[str]:
-        """Clip paths of shorts already out (published=True) or still to come (False)."""
-        operator = "equals" if published else "does_not_equal"
+        """Clip paths of shorts already out (published=True), or still waiting to go out (False).
+
+        A rejected short counts as neither: its file is dead weight, free to delete.
+        """
+        states = [PUB_PUBLISHED] if published else [PUB_TODO, PUB_VALIDATED, PUB_ERROR]
         files, cursor = [], None
         while True:
-            body = {"filter": {"property": "Publication", "select": {operator: PUB_PUBLISHED}}, "page_size": 100}
+            body = {"filter": {"or": [{"property": "Publication", "select": {"equals": s}} for s in states]},
+                    "page_size": 100}
             if cursor:
                 body["start_cursor"] = cursor
             result = self._request("POST", f"databases/{database_id}/query", body)
@@ -269,6 +273,25 @@ class Notion:
             if not result.get("has_more"):
                 return [f for f in files if f]
             cursor = result["next_cursor"]
+
+    def reject_stale(self, database_id: str, days: float) -> List[str]:
+        """Reject shorts that never went out in time; returns their titles."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        result = self._request("POST", f"databases/{database_id}/query", {
+            "filter": {"and": [
+                {"or": [{"property": "Publication", "select": {"equals": s}} for s in (PUB_TODO, PUB_VALIDATED)]},
+                {"timestamp": "created_time", "created_time": {"before": cutoff.isoformat()}},
+            ]},
+            "page_size": 100,
+        })
+        titles = []
+        for page in result.get("results", []):
+            self._request("PATCH", f"pages/{page['id']}", {"properties": {
+                "Publication": _select(PUB_REJECTED),
+                "Erreur publication": _text(f"Non publié après {days:g} jour(s) : trop vieux pour marcher"),
+            }})
+            titles.append(_plain(page["properties"]["Titre"]))
+        return titles
 
     def validated_shorts(self, database_id: str, link_columns: List[str], limit: int) -> List[Dict]:
         """Shorts marked Validé, freshest first: a clip loses its punch as it ages."""

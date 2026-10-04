@@ -76,6 +76,9 @@ FEED_CLIPS_PER_VIDEO = int(_env("FEED_CLIPS_PER_VIDEO", "1"))
 SHORTS_PER_DAY = int(_env("SHORTS_PER_DAY", "6"))
 # Shorts go out on their own: new ones are created "Validé" instead of waiting for a manual check.
 SHORTS_AUTO_VALIDATE = _env("SHORTS_AUTO_VALIDATE", "true").lower() in ("1", "true", "yes", "on")
+# A short still unpublished after this many days is rejected: its moment has passed
+# and its clip is freed for deletion (0 = keep them forever).
+SHORTS_STALE_DAYS = float(_env("SHORTS_STALE_DAYS", "3"))
 # Downloads and rendered clips older than this are deleted (a short still waiting to be published is kept).
 MEDIA_RETENTION_DAYS = float(_env("MEDIA_RETENTION_DAYS", "1"))
 

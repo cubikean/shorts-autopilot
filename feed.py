@@ -11,7 +11,7 @@ Usage:
     python feed.py notify-test            # test phone notification (ntfy)
     python feed.py publish [--limit 1] [--platform youtube] [--dry-run]
     python feed.py stats                  # refresh YouTube / TikTok numbers in the Notion Stats column
-    python feed.py clean [--days 1]       # delete old downloads and published clips
+    python feed.py clean [--days 1]       # reject stale shorts, delete old downloads and clips
 """
 import argparse
 import os
@@ -209,8 +209,10 @@ def main() -> int:
                 process(limit=args.limit)
                 purge_quietly()
         elif args.command == "clean":
-            from shorts_generator.local.cleanup import purge_media
+            from shorts_generator.local.cleanup import purge_media, reject_stale_shorts
 
+            if not args.dry_run:
+                reject_stale_shorts()
             removed = purge_media(days=args.days, dry_run=args.dry_run)
             if not removed:
                 print("[clean] nothing to delete")

@@ -183,7 +183,7 @@ Passe une vidéo en *Rejeté* pour qu'elle ne soit jamais traitée.
 | À publier | en attente de ta relecture (seulement si tu as désactivé la validation auto) |
 | Publié | fait sur toutes les plateformes : lien dans **YouTube**, lien de ton profil dans **TikTok** (brouillon à finaliser dans l'app) |
 | Erreur | échec, raison dans *Erreur publication* ; remets *Validé* pour réessayer |
-| Rejeté | ignoré |
+| Rejeté | ignoré ; mis automatiquement après `SHORTS_STALE_DAYS` jours sans publication, ce qui libère le fichier |
 
 Les textes sont relus dans Notion au moment de publier : les modifier là suffit.
 Passe un short en *Rejeté* pour qu'il ne sorte jamais.
@@ -240,6 +240,7 @@ Tout est documenté dans `.env.example`. Les plus utiles :
 | `FEED_MIN_SCORE` | `1.5` | seuil de viralité YouTube (0 = toutes les nouvelles vidéos) |
 | `SHORTS_PER_DAY` | `6` | shorts publiés par jour ; `process` s'aligne dessus |
 | `SHORTS_AUTO_VALIDATE` | `true` | `false` pour repasser en validation manuelle dans Notion |
+| `SHORTS_STALE_DAYS` | `3` | au-delà, un short non publié passe en Rejeté (0 = jamais) |
 | `MEDIA_RETENTION_DAYS` | `1` | âge à partir duquel les vidéos et clips sont supprimés |
 | `FEED_MAX_PER_RUN` / `FEED_CLIPS_PER_VIDEO` | `10` / `1` | plafond de vidéos par passage, shorts par vidéo |
 | `PUBLISH_MAX_PER_RUN` | `1` | shorts publiés par passage |

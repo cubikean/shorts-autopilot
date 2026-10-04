@@ -1,15 +1,21 @@
 """Delete old downloads and rendered clips.
 
 Source videos are the bulk of the disk usage and are useless once their shorts
-are rendered; a clip is useless once it is published. Anything a Notion row
-still needs (not published yet) is kept, whatever its age.
+are rendered; a clip is useless once it is published. A clip still waiting to go
+out is kept whatever its age — until it goes stale and gets rejected, which frees it.
 """
 import os
 import time
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
-from ..config import LOCAL_OUTPUT_DIR, MEDIA_RETENTION_DAYS, NOTION_SHORTS_DB, NOTION_TOKEN
+from ..config import (
+    LOCAL_OUTPUT_DIR,
+    MEDIA_RETENTION_DAYS,
+    NOTION_SHORTS_DB,
+    NOTION_TOKEN,
+    SHORTS_STALE_DAYS,
+)
 
 MEDIA_SUFFIXES = {".mp4", ".mkv", ".webm", ".m4a", ".wav"}
 
@@ -29,6 +35,18 @@ def _notion_files() -> Tuple[Set[str], Set[str]]:
         print(f"[clean] skipped: could not read Notion ({e})", flush=True)
         raise
     return keep, done - keep
+
+
+def reject_stale_shorts(days: float = SHORTS_STALE_DAYS) -> List[str]:
+    """Shorts nobody published in time stop blocking the queue (and the disk)."""
+    if days <= 0 or not (NOTION_TOKEN and NOTION_SHORTS_DB):
+        return []
+    from ..feed.notion import Notion
+
+    titles = Notion(NOTION_TOKEN).reject_stale(NOTION_SHORTS_DB, days)
+    for title in titles:
+        print(f"[clean] rejected after {days:g} day(s): {title}", flush=True)
+    return titles
 
 
 def purge_media(days: float = MEDIA_RETENTION_DAYS, dry_run: bool = False) -> List[Path]:
@@ -73,6 +91,7 @@ def purge_media(days: float = MEDIA_RETENTION_DAYS, dry_run: bool = False) -> Li
 def purge_quietly(days: Optional[float] = None) -> None:
     """Housekeeping at the end of a run: never fails the command that called it."""
     try:
+        reject_stale_shorts()
         purge_media(MEDIA_RETENTION_DAYS if days is None else days)
     except Exception as e:
         print(f"[clean] skipped: {e}", flush=True)
