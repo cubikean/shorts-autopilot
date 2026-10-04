@@ -146,6 +146,7 @@ Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 | `python feed.py publish --dry-run` | liste ce qui serait publié |
 | `python feed.py publish --limit 1` | publie les shorts validés |
 | `python feed.py stats` | met à jour les stats YouTube / TikTok dans Notion |
+| `python feed.py drafts` | liste les brouillons TikTok qui attendent dans ton app |
 | `python feed.py clean --dry-run` | liste les vidéos et clips à supprimer (plus d'un jour) |
 
 Pour tester un upload sans le rendre public :

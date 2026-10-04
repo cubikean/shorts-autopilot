@@ -10,6 +10,7 @@ Usage:
     python feed.py auth-tiktok            # one-time OAuth consent for TikTok drafts
     python feed.py notify-test            # test phone notification (ntfy)
     python feed.py publish [--limit 1] [--platform youtube] [--dry-run]
+    python feed.py drafts                 # list the TikTok drafts still waiting in your inbox
     python feed.py stats                  # refresh YouTube / TikTok numbers in the Notion Stats column
     python feed.py clean [--days 1]       # reject stale shorts, delete old downloads and clips
 """
@@ -122,6 +123,8 @@ def main() -> int:
                        help=f"delete media older than this (default {MEDIA_RETENTION_DAYS:g})")
     clean.add_argument("--dry-run", action="store_true", help="list what would be deleted")
 
+    sub.add_parser("drafts", help="list the TikTok drafts still waiting in your inbox")
+
     sub.add_parser("stats", help="refresh the Stats column (YouTube and TikTok numbers) of posted shorts")
 
     pub = sub.add_parser("publish", help="upload the shorts marked Validé in Notion")
@@ -179,6 +182,12 @@ def main() -> int:
                 with single_run("publish"):
                     publish(limit=args.limit, platforms=args.platform)
                     purge_quietly()
+        elif args.command == "drafts":
+            from shorts_generator.publish.runner import pending_tiktok_drafts
+
+            waiting = pending_tiktok_drafts()
+            print("\n".join(f"  {title}" for title in waiting) if waiting else "No TikTok draft waiting.")
+            print(f"{len(waiting)} draft(s) waiting; TikTok blocks new ones past 5 pending.")
         elif args.command == "stats":
             from shorts_generator.publish.stats import update_stats
 

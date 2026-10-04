@@ -200,3 +200,17 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
         else:
             print(f"[publish]   still waiting for: {', '.join(n for n in required if n not in done)}", flush=True)
     return published
+
+
+def pending_tiktok_drafts() -> List[str]:
+    """Drafts we sent that never got posted: TikTok counts them against the 5-pending cap.
+
+    The API can't list them, so they are the shorts with a TikTok link whose caption
+    is nowhere among your public videos.
+    """
+    from .tiktok import TikTokPublisher, _normalise
+
+    rows = Notion(NOTION_TOKEN).shorts_with_links(NOTION_SHORTS_DB, ["TikTok"])
+    sent = [row["title"] for row in rows if row["links"].get("TikTok")]
+    public = [_normalise(v.get("video_description")) for v in TikTokPublisher()._list_videos()]
+    return [t for t in sent if not any(d.startswith(_normalise(t)[:25]) for d in public if d)]
