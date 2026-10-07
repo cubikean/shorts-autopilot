@@ -7,7 +7,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 from typing import Optional
 
 from ..config import LOCAL_OUTPUT_DIR
@@ -118,6 +118,66 @@ def _existing_download(out_dir: str, video_id: str) -> Optional[str]:
     return _cached(os.path.join(out_dir, f"source_{video_id}"))
 
 
+HLS_SECTION_TIMEOUT_SECONDS = 600
+
+
+def _hls_section(info: dict, start: float, end: float, out_path: str) -> bool:
+    """Cut [start, end] out of an HLS stream by handing ffmpeg only the segments that cover it.
+
+    Seeking the full playlist breaks on Twitch VODs longer than ~26.5 h: MPEG-TS
+    timestamps wrap at 2^33 ticks, so ffmpeg never reaches a later moment and reads
+    the whole VOD while writing nothing. A trimmed playlist starts at the wanted
+    segment, so the wrap never matters and only a few segments are fetched.
+    Returns False when the selected format isn't a single HLS stream.
+    """
+    import requests
+
+    if info.get("requested_formats") or not str(info.get("protocol", "")).startswith("m3u8"):
+        return False
+    response = requests.get(info["url"], headers=info.get("http_headers"), timeout=30)
+    response.raise_for_status()
+
+    segments, position, duration = [], 0.0, None
+    for line in response.text.splitlines():
+        line = line.strip()
+        if line.startswith("#EXTINF:"):
+            duration = float(line[len("#EXTINF:"):].split(",", 1)[0])
+        elif line and not line.startswith("#") and duration is not None:
+            if position + duration > start and position < end:
+                segments.append((position, duration, urljoin(info["url"], line)))
+            position += duration
+            duration = None
+    if not segments:
+        return False
+
+    playlist = Path(out_path).with_suffix(".m3u8")
+    playlist.write_text(
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-PLAYLIST-TYPE:VOD\n"
+        f"#EXT-X-TARGETDURATION:{int(max(d for _, d, _ in segments)) + 1}\n"
+        + "".join(f"#EXTINF:{d:.3f},\n{url}\n" for _, d, url in segments)
+        + "#EXT-X-ENDLIST\n",
+        encoding="utf-8",
+    )
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+                "-i", str(playlist),
+                "-ss", f"{start - segments[0][0]:.3f}", "-t", f"{end - start:.3f}",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
+                out_path,
+            ],
+            check=True, timeout=HLS_SECTION_TIMEOUT_SECONDS,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        print(f"[download/local] HLS section cut failed: {e}", flush=True)
+    finally:
+        playlist.unlink(missing_ok=True)
+    return True
+
+
 def download_section_local(video_url: str, start: float, end: float, name: str, fmt: str = "1080") -> str:
     """Download only [start, end] seconds of a video (e.g. a moment in a long Twitch VOD)."""
     yt_dlp = _import_ytdlp()
@@ -132,6 +192,18 @@ def download_section_local(video_url: str, start: float, end: float, name: str, 
         return cached
 
     print(f"[download/local] {video_url} [{start:.0f}s-{end:.0f}s] @ {fmt}p", flush=True)
+    with yt_dlp.YoutubeDL({"format": _format_for(fmt), "quiet": True, "no_warnings": True}) as ydl:
+        info = ydl.extract_info(video_url, download=False)
+    if _hls_section(info, start, end, stem + ".mp4"):
+        ready = _cached(stem)
+        if ready:
+            print(f"[download/local] ready: {ready}", flush=True)
+            return ready
+        raise RuntimeError(
+            f"section download produced no usable video for {video_url} [{start:.0f}s-{end:.0f}s] "
+            "(VOD part unavailable, muted or still processing)"
+        )
+
     ydl_opts = {
         "format": _format_for(fmt),
         "outtmpl": stem + ".%(ext)s",
