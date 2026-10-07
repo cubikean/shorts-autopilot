@@ -33,6 +33,9 @@ ffmpeg/OpenCV crop, reframe and burned subtitles (`local/clipper.py`, `reframe.p
 
 - Always use the venv: `venv\Scripts\python` (Python 3.10). On Windows set `PYTHONIOENCODING=utf-8`,
   titles are full of emoji and the console is cp1252.
+- **Changing how moments are picked** (prompt, signals, model): measure it with `bench.py` before
+  shipping. `bench.py build` caches older videos that already have YouTube's most-replayed curve;
+  `bench.py run <variants>` grades the picks on it in minutes. Tune on dev, confirm once on `--holdout`.
 - There is no test suite. Verify with the dry-run flags (`discover --dry-run`, `publish --dry-run`,
   `replay --dry-run`, `clean --dry-run`) and with scratch scripts that import the module under test.
   Write scratch output outside `output/`, which the pipeline treats as its cache.

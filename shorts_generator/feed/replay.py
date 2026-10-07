@@ -19,7 +19,7 @@ from .notion import Notion
 MIN_AGE_DAYS = 10    # the curve shows up 7-10 days after release
 GIVE_UP_DAYS = 30    # still no curve by then: the source never got enough views for one
 WINDOW_STEP_SECONDS = 2.0
-INTRO_SECONDS, INTRO_SHARE = 60.0, 0.05  # opening left out of the comparison: min(60 s, 5 % of the video)
+INTRO_SECONDS, INTRO_SHARE = 60.0, 0.05  # opening flattened before grading: min(60 s, 5 % of the video)
 
 
 def _clock(seconds: float) -> str:
@@ -48,14 +48,16 @@ def _window_mean(heatmap: List[Dict], start: float, end: float) -> float:
 def grade(heatmap: List[Dict], start: float, end: float) -> Dict:
     """Percentile of [start, end] among all same-length windows, and the best such window."""
     duration = heatmap[-1]["end_time"]
+    # Everyone watches the opening, so the curve always bumps there: it isn't a replayed moment.
+    # Flatten it to the video's median, for the chosen clip and the windows it is compared with alike.
+    intro_end = min(INTRO_SECONDS, INTRO_SHARE * duration)
+    typical = median(p["value"] for p in heatmap)
+    heatmap = [{**p, "value": min(p["value"], typical)} if p["start_time"] < intro_end else p for p in heatmap]
     length = min(end - start, duration)
     start = min(max(0.0, start), duration - length)
     clip = _window_mean(heatmap, start, start + length)
     windows = []
-    # Everyone watches the opening, so the curve always bumps there: it isn't a replayed moment.
-    t = min(INTRO_SECONDS, INTRO_SHARE * duration)
-    if t + length > duration:
-        t = 0.0
+    t = 0.0
     while t + length <= duration:
         windows.append((t, _window_mean(heatmap, t, t + length)))
         t += WINDOW_STEP_SECONDS

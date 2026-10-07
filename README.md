@@ -202,7 +202,7 @@ Une plateforme en échec garde ses derniers chiffres. Permissions nécessaires, 
 **Note du moment choisi** : YouTube publie la courbe « moments les plus revus » d'une vidéo
 environ 10 jours après sa sortie, trop tard pour choisir le moment, mais parfait pour le juger.
 Chaque matin, `replay` compare le passage de chaque short de plus de 10 jours à tous les passages
-de même durée de la vidéo source (hors intro) : *Centile revu* vaut 100 pour le passage le plus
+de même durée de la vidéo source (intro neutralisée) : *Centile revu* vaut 100 pour le passage le plus
 revu, 50 pour un choix au hasard ; *Pic revu* dit où était le vrai pic. Le résumé par semaine
 montre si les changements du prompt aident. Les sources Twitch n'ont pas de courbe.
 
