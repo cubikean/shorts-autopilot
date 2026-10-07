@@ -1,8 +1,7 @@
 # AGENTS.md
 
 Guide for coding agents working on this repo. The user-facing docs (setup, commands, Notion
-workflow) are in [README.md](README.md), in French. Dated follow-ups and the idea backlog are in
-[AGENDA.md](AGENDA.md): read it at the start of a session and handle anything past due.
+workflow) are in [README.md](README.md), in French.
 
 ## What this is
 
