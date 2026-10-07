@@ -343,7 +343,17 @@ class TikTokPublisher(Publisher):
         state = None
         while time.time() < deadline:
             time.sleep(STATUS_POLL_SECONDS)
-            status = self._api("post/publish/status/fetch/", {"publish_id": publish_id})
+            try:
+                status = self._api("post/publish/status/fetch/", {"publish_id": publish_id})
+            except QuotaExceeded:
+                raise
+            except (RuntimeError, requests.RequestException) as e:
+                # The file is already uploaded: a server hiccup (TikTok 504, timeout) is no reason
+                # to fail the short, which would re-upload it next run as a second draft.
+                if isinstance(e, RuntimeError) and not re.search(r"\[5\d\d", str(e)):
+                    raise
+                print(f"[publish/tiktok]   status check failed, retrying: {str(e)[:120]}", flush=True)
+                continue
             state = status.get("status")
             if state in ("SEND_TO_USER_INBOX", "PUBLISH_COMPLETE"):
                 return self._sent(post, publish_id, state)
