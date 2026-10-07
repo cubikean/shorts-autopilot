@@ -8,6 +8,7 @@ from typing import Dict, List
 
 from ..config import (
     FEED_CLIPS_PER_VIDEO,
+    FEED_MAX_AGE_HOURS,
     FEED_MAX_PER_RUN,
     FEED_SOURCES_FILE,
     LOCAL_OUTPUT_DIR,
@@ -55,7 +56,8 @@ def discover(dry_run: bool = False) -> List[Dict]:
     return candidates
 
 
-def process(limit: int = FEED_MAX_PER_RUN, ignore_daily_target: bool = False) -> None:
+def process(limit: int = FEED_MAX_PER_RUN, ignore_daily_target: bool = False) -> int:
+    """Render the top queued videos; returns how many were taken (rendered or failed)."""
     from ..local.downloader import download_section_local
     from ..pipeline import generate_shorts
 
@@ -66,13 +68,15 @@ def process(limit: int = FEED_MAX_PER_RUN, ignore_daily_target: bool = False) ->
     requeued = notion.requeue_running(videos_db)
     if requeued:
         print(f"[feed] {requeued} video(s) left \"En cours\" by an interrupted run put back in the queue")
+    for title in notion.reject_old_videos(videos_db, FEED_MAX_AGE_HOURS):
+        print(f"[feed] rejected, source older than {FEED_MAX_AGE_HOURS:g} h: {title}", flush=True)
     # Render only what publishing can absorb, so the Notion queue doesn't grow faster than the channel.
     waiting = len(notion.pending_shorts(shorts_db))
     missing = max(0, SHORTS_PER_DAY - waiting)
     videos_wanted = limit if ignore_daily_target else min(limit, -(-missing // max(1, FEED_CLIPS_PER_VIDEO)))
     if not videos_wanted:
         print(f"[feed] {waiting} short(s) already waiting to be published (target {SHORTS_PER_DAY}/day), nothing to render")
-        return
+        return 0
     rows = notion.todo(videos_db, videos_wanted)
     print(f"[feed] {len(rows)} video(s) to process ({waiting} short(s) waiting, target {SHORTS_PER_DAY}/day)")
 
@@ -120,26 +124,29 @@ def process(limit: int = FEED_MAX_PER_RUN, ignore_daily_target: bool = False) ->
         except Exception as e:
             print(f"[feed] ✘ {e}", flush=True)
             notion.set_status(row["page_id"], STATUS_ERROR, str(e)[:1900])
+    return len(rows)
 
 
 def watch() -> None:
-    """Every couple of hours: a video that just blew up skips the queue.
+    """Every 15 minutes: whatever just came out is clipped and posted right away.
 
-    Found something fresh? Render and publish it right away (TikTok draft + phone
-    notification included). Found nothing? Leave it to the scheduled process/publish runs.
+    Reach comes from freshness (the clips that took off went out ~2 h after their
+    source), so each fresh video is rendered and published before the next one is
+    started, and every run also offers the freshest waiting short to a freed slot.
     """
     from .. import notify
     from ..publish.runner import publish
 
-    fresh = discover()
-    if not fresh:
-        print("[watch] nothing new; the scheduled runs keep the usual pace")
-        return
+    def publish_and_notify(limit: int) -> None:
+        for short in publish(limit=limit):
+            links = " · ".join(f"{name}: {url}" for name, url in short["links"].items())
+            notify.send(f"En ligne : {short['title']}"[:200], links or "publié",
+                        open_url=short["links"].get("youtube"), open_label="Voir sur YouTube")
 
-    print(f"[watch] {len(fresh)} fresh video(s): rendering and publishing now", flush=True)
-    process(limit=len(fresh), ignore_daily_target=True)
-    published = publish(limit=len(fresh))
-    for short in published:
-        links = " · ".join(f"{name}: {url}" for name, url in short["links"].items())
-        notify.send(f"En ligne : {short['title']}"[:200], links or "publié",
-                    open_url=short["links"].get("youtube"), open_label="Voir sur YouTube")
+    fresh = discover()
+    if fresh:
+        print(f"[watch] {len(fresh)} fresh candidate(s): rendering and publishing one at a time", flush=True)
+    while process(limit=1, ignore_daily_target=True):
+        publish_and_notify(FEED_CLIPS_PER_VIDEO)
+    # Nothing (more) to render: a YouTube slot may still have freed up since the last run.
+    publish_and_notify(1)

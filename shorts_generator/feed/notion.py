@@ -180,6 +180,26 @@ class Notion:
             })
         return rows
 
+    def reject_old_videos(self, database_id: str, max_age_hours: float) -> List[str]:
+        """Reject queued videos whose source is older than max_age_hours; returns their titles.
+
+        A clip of an old video gets a fraction of a fresh one's reach: rendering it only
+        takes a publishing slot from something fresher.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        result = self._request("POST", f"databases/{database_id}/query", {
+            "filter": {"and": [
+                {"property": "Statut", "select": {"equals": STATUS_TODO}},
+                {"property": "Publiée", "date": {"before": cutoff.isoformat()}},
+            ]},
+            "page_size": 100,
+        })
+        titles = []
+        for page in result.get("results", []):
+            self.set_status(page["id"], STATUS_REJECTED, f"Source de plus de {max_age_hours:g} h : trop vieille pour percer")
+            titles.append(_plain(page["properties"]["Nom"]))
+        return titles
+
     def requeue_running(self, database_id: str) -> int:
         """Put back videos left "En cours" by a run that died (crash, reboot, task time limit)."""
         result = self._request("POST", f"databases/{database_id}/query", {

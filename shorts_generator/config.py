@@ -61,8 +61,10 @@ NOTION_SHORTS_DB = _env("NOTION_SHORTS_DB", "")
 TWITCH_CLIENT_ID = _env("TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET = _env("TWITCH_CLIENT_SECRET", "")
 FEED_SOURCES_FILE = _env("FEED_SOURCES_FILE", "sources.json")
-FEED_MIN_AGE_HOURS = float(_env("FEED_MIN_AGE_HOURS", "2"))       # view velocity is noise before this
-FEED_MAX_AGE_HOURS = float(_env("FEED_MAX_AGE_HOURS", "72"))
+# Freshness drives reach: clips posted ~2 h after the source took off, later ones barely moved.
+# Sources are picked up as soon as they appear and dropped (queued ones rejected) past FEED_MAX_AGE_HOURS.
+FEED_MIN_AGE_HOURS = float(_env("FEED_MIN_AGE_HOURS", "0"))
+FEED_MAX_AGE_HOURS = float(_env("FEED_MAX_AGE_HOURS", "6"))
 # YouTube source length limits (Twitch only downloads a window around each moment).
 FEED_MIN_DURATION_MINUTES = float(_env("FEED_MIN_DURATION_MINUTES", "1"))
 FEED_MAX_DURATION_MINUTES = float(_env("FEED_MAX_DURATION_MINUTES", "120"))
@@ -78,7 +80,7 @@ SHORTS_PER_DAY = int(_env("SHORTS_PER_DAY", "6"))
 SHORTS_AUTO_VALIDATE = _env("SHORTS_AUTO_VALIDATE", "true").lower() in ("1", "true", "yes", "on")
 # A short still unpublished after this many days is rejected: its moment has passed
 # and its clip is freed for deletion (0 = keep them forever).
-SHORTS_STALE_DAYS = float(_env("SHORTS_STALE_DAYS", "3"))
+SHORTS_STALE_DAYS = float(_env("SHORTS_STALE_DAYS", "0.5"))
 # Downloads and rendered clips older than this are deleted (a short still waiting to be published is kept).
 MEDIA_RETENTION_DAYS = float(_env("MEDIA_RETENTION_DAYS", "1"))
 
@@ -92,6 +94,9 @@ YOUTUBE_PRIVACY = _env("YOUTUBE_PRIVACY", "public")         # public / unlisted 
 YOUTUBE_CATEGORY_ID = _env("YOUTUBE_CATEGORY_ID", "24")     # 24 Entertainment, 20 Gaming, 23 Comedy
 # Minimum time between two public releases: extra uploads are scheduled (private + publishAt).
 YOUTUBE_MIN_GAP_MINUTES = int(_env("YOUTUBE_MIN_GAP_MINUTES", "180"))
+# Upload only when the short would go public within this many minutes; otherwise it waits in Notion,
+# so each free slot goes to the freshest short instead of a day-long backlog of scheduled ones.
+YOUTUBE_MAX_WAIT_MINUTES = int(_env("YOUTUBE_MAX_WAIT_MINUTES", "30"))
 # TikTok (inbox drafts): app credentials from developers.tiktok.com, token written by auth-tiktok.
 TIKTOK_CLIENT_KEY = _env("TIKTOK_CLIENT_KEY", "")
 TIKTOK_CLIENT_SECRET = _env("TIKTOK_CLIENT_SECRET", "")

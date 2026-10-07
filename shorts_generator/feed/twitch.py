@@ -1,4 +1,4 @@
-"""Twitch discovery: the community's most-viewed clips from the last 24 hours.
+"""Twitch discovery: the community's most-viewed clips from the last FEED_MAX_AGE_HOURS.
 
 Viewers already clipped the best moments, and each clip knows where it sits in
 the VOD. Nearby clips are merged into one "moment", and only a window around
@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 import requests
 
 from ..config import (
+    FEED_MAX_AGE_HOURS,
     FEED_TWITCH_MIN_VIEWS,
     FEED_TWITCH_MOMENTS_PER_CHANNEL,
     TWITCH_CLIENT_ID,
@@ -107,7 +108,7 @@ def discover_twitch(sources: List[Dict], now: Optional[datetime] = None) -> List
     for user in users:
         clips = _helix("clips", token, {
             "broadcaster_id": user["id"],
-            "started_at": _rfc3339(now - timedelta(hours=24)),
+            "started_at": _rfc3339(now - timedelta(hours=FEED_MAX_AGE_HOURS)),
             "ended_at": _rfc3339(now),
             "first": 100,
         })
@@ -121,7 +122,7 @@ def discover_twitch(sources: List[Dict], now: Optional[datetime] = None) -> List
                 kept.append(m)
         moments = kept
         if not moments:
-            print(f"[feed/twitch] {user['login']}: no usable clipped VOD moment in the last 24h", flush=True)
+            print(f"[feed/twitch] {user['login']}: no usable clipped VOD moment in the last {FEED_MAX_AGE_HOURS:g}h", flush=True)
             continue
         baseline = statistics.median(m["views"] for m in moments)
         for m in sorted(moments, key=lambda m: -m["views"])[:FEED_TWITCH_MOMENTS_PER_CHANNEL]:

@@ -31,6 +31,10 @@ class QuotaExceeded(RuntimeError):
     """The platform refuses more uploads for now: stop the run, leave the queue as is."""
 
 
+class SlotBusy(QuotaExceeded):
+    """The platform could take the short, but only so late it would be stale: try again next run."""
+
+
 class Publisher:
     """Uploads one short to one platform and returns the public URL of the post."""
 

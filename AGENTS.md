@@ -52,6 +52,10 @@ ffmpeg/OpenCV crop, reframe and burned subtitles (`local/clipper.py`, `reframe.p
 - **Never let several YouTube shorts go public at once**, manual runs included: publishing goes
   through `publish` and its `YOUTUBE_MIN_GAP_MINUTES` spacing. Don't use `watch` or `publish` to
   test, use `--dry-run`.
+- **Freshness first.** Our data: clips posted ~2 h after their source took off reached 5k-480k
+  TikTok views, those posted 8-48 h later almost never passed 2k. Don't add steps that delay a
+  fresh short (queues, batching, long schedules); old sources and unpublished shorts are rejected
+  (`FEED_MAX_AGE_HOURS`, `SHORTS_STALE_DAYS`, `YOUTUBE_MAX_WAIT_MINUTES`).
 - **TikTok** posts go to the inbox as drafts (sandbox app, not Direct Post); TikTok refuses new
   uploads while 5 drafts are pending (`feed.py drafts` lists them).
 - Code, comments, logs and commits are in English. Everything the user reads in Notion, the README,

@@ -4,6 +4,8 @@ Quota: videos.insert costs 1600 of the default 10 000 units a day, i.e. about
 6 uploads a day per Google Cloud project.
 Pacing: releases are spaced by YOUTUBE_MIN_GAP_MINUTES; uploads that come in
 sooner are scheduled (private + publishAt) instead of going public at once.
+Freshness: a short whose slot is more than YOUTUBE_MAX_WAIT_MINUTES away isn't
+uploaded; it waits in Notion and the next free slot goes to the freshest short.
 """
 import json
 import random
@@ -16,11 +18,12 @@ from ..config import (
     LOCAL_OUTPUT_DIR,
     YOUTUBE_CATEGORY_ID,
     YOUTUBE_CLIENT_SECRETS,
+    YOUTUBE_MAX_WAIT_MINUTES,
     YOUTUBE_MIN_GAP_MINUTES,
     YOUTUBE_PRIVACY,
     YOUTUBE_TOKEN_FILE,
 )
-from .base import PostStats, Publisher, QuotaExceeded, ShortPost
+from .base import PostStats, Publisher, QuotaExceeded, ShortPost, SlotBusy
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEDULE_FILE = Path(LOCAL_OUTPUT_DIR) / "youtube_schedule.json"
@@ -183,7 +186,12 @@ class YouTubePublisher(Publisher):
         release = None
         if YOUTUBE_PRIVACY == "public":
             release = _release_slot(post.publish_at)
-            if release > datetime.now(timezone.utc) + timedelta(minutes=2):
+            now = datetime.now(timezone.utc)
+            wanted = max(now, post.publish_at.astimezone(timezone.utc)) if post.publish_at else now
+            if release > wanted + timedelta(minutes=YOUTUBE_MAX_WAIT_MINUTES):
+                # Queuing it would make it hours stale by release: leave the slot to a fresher short.
+                raise SlotBusy(f"next YouTube slot {release.astimezone():%d/%m %H:%M}, keeping the short for a fresher run")
+            if release > now + timedelta(minutes=2):
                 # Scheduled release: YouTube requires the video to be private until publishAt.
                 status.update(privacyStatus="private", publishAt=release.strftime("%Y-%m-%dT%H:%M:%SZ"))
 

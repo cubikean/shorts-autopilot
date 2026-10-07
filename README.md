@@ -5,15 +5,23 @@ de chaînes YouTube / Twitch, en extrait les meilleurs moments en 9:16 sous-titr
 les range dans Notion, puis les publie tout seul sur YouTube et TikTok.
 
 ```
-/2 h    watch     → si une vidéo vient de sortir : rendu + publication immédiats
+/15 min watch     → si une vidéo vient de sortir : rendu + publication immédiats
 /12 h   process   → Notion « Shorts » Validé     (1 short par vidéo, prêt à partir)
 /4 h    publish   → YouTube + TikTok             (lien écrit dans Notion, statut Publié)
 ```
 
-**Voie rapide** : toutes les 2 h, `watch` cherche de nouvelles vidéos. S'il en trouve
-une, elle court-circuite les horaires fixes : rendue et publiée dans la foulée
-(brouillon TikTok + notification sur ton téléphone avec le lien). S'il n'y a rien de
-neuf, il ne fait rien et laisse les passages habituels travailler.
+**Tout mise sur la fraîcheur** : les shorts qui ont percé sont sortis environ 2 h après
+leur vidéo source, ceux sortis 8 à 48 h après n'ont presque rien fait. Donc :
+- toutes les 15 min, `watch` cherche du neuf ; chaque vidéo trouvée est rendue puis
+  publiée aussitôt (brouillon TikTok + notification), avant de passer à la suivante ;
+- seules les sources de moins de `FEED_MAX_AGE_HOURS` (6 h) sont prises ; celles plus
+  vieilles encore en file sont rejetées au lieu d'être rendues ;
+- un short n'est envoyé sur YouTube que s'il sortira dans les `YOUTUBE_MAX_WAIT_MINUTES`
+  (30 min) : sinon il attend, et le prochain créneau libre va au short le plus frais ;
+- un short non publié au bout de `SHORTS_STALE_DAYS` (12 h) est rejeté.
+
+**Publie les brouillons TikTok dès la notification** : chaque heure perdue coûte des vues,
+et 5 brouillons non publiés bloquent les suivants.
 
 Le rythme est piloté par `SHORTS_PER_DAY` (6 par défaut) : `publish` sort un short
 par passage, et `process` ne fabrique que ce qui manque pour tenir ce rythme. La voie
@@ -125,7 +133,7 @@ powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1
 
 | Tâche | Quand | Rôle |
 |---|---|---|
-| `ShortsFeed-Watch` | toutes les 2 h | cherche du neuf ; si oui, rend et publie immédiatement |
+| `ShortsFeed-Watch` | toutes les 15 min | cherche du neuf ; si oui, rend et publie immédiatement |
 | `ShortsFeed-Process` | 01h, 13h | complète la file de shorts jusqu'à `SHORTS_PER_DAY` |
 | `ShortsFeed-Publish` | 09h, 13h, 17h, 21h, 01h, 05h | publie les shorts validés (`PUBLISH_MAX_PER_RUN` par passage) |
 | `ShortsFeed-Stats` | 08h00 | met à jour la colonne **Stats** (vues, j'aime, commentaires, partages), puis note les moments choisis (`replay`) |
@@ -208,8 +216,10 @@ montre si les changements du prompt aident. Les sources Twitch n'ont pas de cour
 
 **Jamais de rafale sur YouTube** : deux shorts ne deviennent jamais publics à moins de
 `YOUTUBE_MIN_GAP_MINUTES` (3 h par défaut) d'intervalle, même si plusieurs partent dans
-le même passage. Les suivants sont uploadés en privé et programmés sur les créneaux
-suivants (dernier créneau mémorisé dans `output\youtube_schedule.json`).
+le même passage. Un short n'est uploadé que si son créneau tombe dans les
+`YOUTUBE_MAX_WAIT_MINUTES` (30 min) ; il est alors programmé en privé jusqu'à l'heure dite
+(dernier créneau mémorisé dans `output\youtube_schedule.json`). Sinon il reste *Validé*
+dans Notion, et le créneau suivant revient au short le plus frais.
 
 | YouTube | Colonnes Notion |
 |---|---|
@@ -221,7 +231,7 @@ suivants (dernier créneau mémorisé dans `output\youtube_schedule.json`).
 
 **Découverte**
 - **YouTube** : flux RSS public des chaînes (sans clé ni quota). Score = vues/heure de la vidéo ÷ vues/heure médianes de la chaîne. Mise en file à partir de `FEED_MIN_SCORE` (1.5). Les vidéos déjà en format Short, en live ou hors `FEED_MIN/MAX_DURATION_MINUTES` sont ignorées.
-- **Twitch** : clips les plus vus des dernières 24 h, fusionnés en « moments ». Seule une fenêtre autour du moment est téléchargée (pas le VOD entier) et donne un short.
+- **Twitch** : clips les plus vus des dernières `FEED_MAX_AGE_HOURS` (6 h), fusionnés en « moments ». Seule une fenêtre autour du moment est téléchargée (pas le VOD entier) et donne un short.
 
 **Génération**
 1. **Téléchargement** avec `yt-dlp` (mis en cache : `output\source_<id>.mp4`).
@@ -249,7 +259,9 @@ Tout est documenté dans `.env.example`. Les plus utiles :
 | `FEED_MIN_SCORE` | `1.5` | seuil de viralité YouTube (0 = toutes les nouvelles vidéos) |
 | `SHORTS_PER_DAY` | `6` | shorts publiés par jour ; `process` s'aligne dessus |
 | `SHORTS_AUTO_VALIDATE` | `true` | `false` pour repasser en validation manuelle dans Notion |
-| `SHORTS_STALE_DAYS` | `3` | au-delà, un short non publié passe en Rejeté (0 = jamais) |
+| `FEED_MIN_AGE_HOURS` / `FEED_MAX_AGE_HOURS` | `0` / `6` | fenêtre de fraîcheur des sources |
+| `SHORTS_STALE_DAYS` | `0.5` | au-delà, un short non publié passe en Rejeté (0 = jamais) |
+| `YOUTUBE_MAX_WAIT_MINUTES` | `30` | délai max avant la sortie publique pour uploader sur YouTube |
 | `MEDIA_RETENTION_DAYS` | `1` | âge à partir duquel les vidéos et clips sont supprimés |
 | `FEED_MAX_PER_RUN` / `FEED_CLIPS_PER_VIDEO` | `10` / `1` | plafond de vidéos par passage, shorts par vidéo |
 | `PUBLISH_MAX_PER_RUN` | `1` | shorts publiés par passage |
