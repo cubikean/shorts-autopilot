@@ -43,6 +43,7 @@ def generate_shorts(
     from .local.clipper import crop_highlights_local
     from .local.downloader import download_youtube_local
     from .local.llm import call_local_llm
+    from .local.signals import annotate_audio, comment_hotspots
     from .local.transcriber import transcribe_local
 
     source_path = download_youtube_local(youtube_url, fmt=download_format)
@@ -53,7 +54,11 @@ def generate_shorts(
             "Whisper produced no segments. The video may have no detectable speech."
         )
 
-    highlights_result = get_highlights(transcript, num_clips=num_clips, llm_fn=call_local_llm)
+    # Point the picker at what the audience reacted to: audio spikes and timestamps cited in comments.
+    transcript = annotate_audio(source_path, transcript)
+    hotspots = comment_hotspots(youtube_url, source_path, float(transcript.get("duration") or 0))
+
+    highlights_result = get_highlights(transcript, num_clips=num_clips, llm_fn=call_local_llm, hotspots=hotspots)
     all_highlights: List[Dict] = highlights_result.get("highlights", [])
     if not all_highlights:
         raise RuntimeError("Highlight generator returned zero clips.")

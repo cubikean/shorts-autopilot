@@ -22,25 +22,44 @@ LLMFn = Callable[[str], str]
 
 
 VIRALITY_CRITERIA = """
-Virality signals to prioritize (ranked by impact):
-1. HOOK MOMENTS — statements that create immediate curiosity ("The secret is...", "Nobody talks about...", "I was completely wrong about...")
-2. EMOTIONAL PEAKS — genuine surprise, laughter, anger, vulnerability, excitement; raw unscripted reactions
-3. OPINION BOMBS — strong, polarizing or counter-intuitive statements that trigger agree/disagree
-4. REVELATION MOMENTS — surprising facts, stats, or confessions that reframe how the viewer thinks
-5. CONFLICT/TENSION — disagreement, pushback, or a problem being confronted head-on
-6. QUOTABLE ONE-LINERS — a sentence that works as a standalone quote card
-7. STORY PEAKS — the climax or twist of an anecdote; the payoff moment
-8. PRACTICAL VALUE — a concrete tip, hack, or insight the viewer can immediately apply
+Our audience: French-speaking teens and young adults scrolling entertainment — YouTubers and
+streamers playing games, doing IRL challenges, debating nonsense with friends. What makes a clip
+blow up for them (ranked by impact):
+1. LOSING IT — uncontrollable laughter, a fou rire spreading to everyone, someone cracking up mid-sentence
+2. OFF THE RAILS — a situation escalating out of control, a plan going horribly wrong, everyone shouting at once
+3. FAILS & KARMA — a spectacular fail, instant karma, a bold claim proven wrong seconds later
+4. PUNCHLINES & ROASTS — a brutal one-liner, a perfect comeback, friendly roasting that lands
+5. MALAISE — a cringe moment, an awkward silence, a weird confession, a "what did he just say"
+6. RAW REACTIONS — genuine shock, fear, hype, rage, disbelief; screaming at a game or at a reveal
+7. ABSURD LOGIC — a wildly dumb argument defended with total conviction, a nonsense debate taken seriously
+8. STORY PAYOFF — the twist or punchline of an anecdote, with just enough setup for it to land
+A clip must work for someone who has never seen the channel: no inside joke that needs earlier context.
+"""
+
+SIGNALS_GUIDE = """
+Signals in the transcript (use them, they come from the real video):
+- (LOUD) / (VERY LOUD) after a timestamp: the audio spikes there compared with the rest of the video —
+  shouting, laughter, hype or a game blowing up. Reactions live there, but a loud line is not funny by itself.
+- (LAUGH): laughter written out in the transcript.
+"""
+
+HOTSPOTS_GUIDE = """
+Viewer hot zones: the moments viewers cite with a timestamp in the top YouTube comments (weight grows
+with mentions and likes). They are the strongest evidence of what this audience loved: read the
+transcript around each zone and favour it whenever a self-contained clip fits there (the clip may start
+before the zone to set it up). Still pick other moments when they are clearly better.
+{zones}
 """
 
 
 HIGHLIGHT_SYSTEM_PROMPT = """You are an elite short-form video editor who has studied thousands of viral clips on TikTok, Instagram Reels, and YouTube Shorts. You know exactly what makes viewers stop scrolling, watch to the end, and share.
 
 {virality_criteria}
-
-Your task: identify the most viral-worthy highlights from the transcript below. Infer the content type (podcast, interview, tutorial, vlog, ...) from the transcript and judge highlights accordingly.
+{signals}
+Your task: identify the most viral-worthy highlights from the transcript below. Infer the content type (gaming, IRL, debate, podcast, ...) from the transcript and judge highlights accordingly.
 
 Rules:
+- Weigh the whole transcript evenly: the best moment is as likely to be near the end as near the start
 - Every highlight must open with a strong HOOK — a line that grabs attention within the first 3 seconds
 - Duration sweet spot: 45-90 seconds. Go shorter (20-44s) only for a perfect standalone one-liner. Go longer (91-180s) only when a story arc needs full context to land
 - Never cut mid-sentence or mid-thought — each clip must feel complete and self-contained
@@ -193,9 +212,32 @@ def snap_to_segments(highlights: List[Dict], segments: List[Dict]) -> List[Dict]
     return snapped
 
 
+def _segment_line(s: Dict) -> str:
+    markers = "".join(f" ({m})" for m in s.get("markers") or [])
+    return f"[{int(s['start'])}]{markers} {s['text'].strip()}"
+
+
 def build_transcript_text(transcript: Dict) -> str:
-    segments = transcript.get("segments", [])
-    return "\n".join(f"[{int(s['start'])}] {s['text'].strip()}" for s in segments)
+    return "\n".join(_segment_line(s) for s in transcript.get("segments", []))
+
+
+def _hotspots_in(hotspots: List[Dict], start: float, end: float) -> List[Dict]:
+    return [h for h in hotspots or [] if h["end"] > start and h["start"] < end]
+
+
+def _format_hotspots(hotspots: List[Dict]) -> str:
+    lines = []
+    for h in hotspots:
+        quotes = " | ".join(f'"{q}"' for q in h["quotes"])
+        lines.append(f"[{h['start']}-{h['end']}] {h['mentions']} mention(s), weight {h['weight']}" + (f": {quotes}" if quotes else ""))
+    return "\n".join(lines)
+
+
+def _signals_section(transcript: Dict, hotspots: List[Dict]) -> str:
+    section = SIGNALS_GUIDE if any(s.get("markers") for s in transcript.get("segments", [])) else ""
+    if hotspots:
+        section += HOTSPOTS_GUIDE.format(zones=_format_hotspots(hotspots))
+    return section
 
 
 def chunk_transcript(transcript: Dict) -> List[Dict]:
@@ -229,6 +271,7 @@ def call_highlight_api(
     num_clips: int,
     is_chunk: bool = False,
     llm_fn: LLMFn = _default_llm,
+    hotspots: Optional[List[Dict]] = None,
 ) -> Dict:
     duration = float(transcript.get("duration", 0))
     offset = float(transcript.get("_offset", 0))
@@ -237,15 +280,16 @@ def call_highlight_api(
     # for a long tail of candidates that never get rendered.
     natural_max = max(2 if is_chunk else 3, int(duration / 90))
     wanted = max(1, min(num_clips + 2, natural_max, 8))
+    # Segment timestamps are absolute, so chunk bounds are offset..offset+duration (+ overlap).
+    max_end = offset + duration + (CHUNK_OVERLAP_SECONDS if is_chunk else 0)
     system = HIGHLIGHT_SYSTEM_PROMPT.format(
         virality_criteria=VIRALITY_CRITERIA,
+        signals=_signals_section(transcript, _hotspots_in(hotspots, offset, max_end)),
         num_clips_instruction=f"Return at most {wanted} highlights, best first",
     )
     base_prompt = f"{system}\n\nTranscript:\n{build_transcript_text(transcript)}"
     prompt = base_prompt
     last_error = "unknown"
-    # Segment timestamps are absolute, so chunk bounds are offset..offset+duration (+ overlap).
-    max_end = offset + duration + (CHUNK_OVERLAP_SECONDS if is_chunk else 0)
 
     for attempt in range(1, MAX_HIGHLIGHT_API_ATTEMPTS + 1):
         raw = llm_fn(prompt)
@@ -301,14 +345,87 @@ def dedupe_highlights(highlights: List[Dict]) -> List[Dict]:
     return kept
 
 
+RERANK_MAX_CANDIDATES = 8
+RERANK_EXCERPT_CHARS = 2000
+
+RERANK_PROMPT = """You are the final editor. Each part of a long video was scanned separately, so the
+candidate clips below were scored in isolation and their scores don't compare. Read them side by side
+and rank ALL of them against each other: only the first one is published, so it must be the single
+most scroll-stopping clip of the whole video.
+
+{virality_criteria}
+Also weigh: does the clip hook in its first 3 seconds, does it stand alone without earlier context,
+does it pay off before the end? Viewer comment mentions are strong evidence of what the audience loved.
+
+{candidates}
+
+Respond ONLY with valid JSON (no markdown, no explanation), every id exactly once, best first:
+{{"ranking":[{{"id":int,"score":int}}]}}"""
+
+
+def _excerpt(segments: List[Dict], start: float, end: float) -> str:
+    text = "\n".join(_segment_line(s) for s in segments if s["end"] > start and s["start"] < end)
+    return text if len(text) <= RERANK_EXCERPT_CHARS else text[:RERANK_EXCERPT_CHARS] + " […]"
+
+
+def rerank_highlights(
+    highlights: List[Dict],
+    transcript: Dict,
+    hotspots: Optional[List[Dict]],
+    llm_fn: LLMFn,
+) -> List[Dict]:
+    """One extra call that compares candidates from different chunks on the same scale.
+
+    Best effort: any failure keeps the chunk scores.
+    """
+    candidates = sorted(highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:RERANK_MAX_CANDIDATES]
+    if len(candidates) < 2:
+        return highlights
+    blocks = []
+    for i, h in enumerate(candidates):
+        zones = _hotspots_in(hotspots, h["start_time"], h["end_time"])
+        mentions = sum(z["mentions"] for z in zones)
+        blocks.append(
+            f"--- id {i}: [{int(h['start_time'])}-{int(h['end_time'])}] \"{h['title']}\""
+            f" (viewer comment mentions: {mentions})\n"
+            f"{_excerpt(transcript.get('segments', []), h['start_time'], h['end_time'])}"
+        )
+    prompt = RERANK_PROMPT.format(virality_criteria=VIRALITY_CRITERIA, candidates="\n\n".join(blocks))
+    try:
+        ranking = _parse_json_loose(llm_fn(prompt)).get("ranking")
+        order: List[int] = []
+        scores: Dict[int, int] = {}
+        for item in ranking if isinstance(ranking, list) else []:
+            i = _coerce_int(item.get("id"), default=-1) if isinstance(item, dict) else -1
+            if 0 <= i < len(candidates) and i not in scores:
+                order.append(i)
+                scores[i] = max(0, min(100, _coerce_int(item.get("score"), default=0)))
+        if not order:
+            raise ValueError("no usable ranking in response")
+    except Exception as e:
+        print(f"[highlights] rerank skipped, keeping chunk scores: {e}", flush=True)
+        return highlights
+
+    order += [i for i in range(len(candidates)) if i not in scores]  # anything the model forgot goes last
+    reranked, ceiling = [], 100
+    for i in order:
+        # Scores follow the ranking order: the pipeline sorts by score, the ranking is what we trust.
+        ceiling = min(ceiling, scores.get(i, 0))
+        reranked.append({**candidates[i], "score": ceiling})
+    print("[highlights] rerank: " + ", ".join(f"{int(h['start_time'])}s→{h['score']}" for h in reranked), flush=True)
+    return reranked
+
+
 def get_highlights(
     transcript: Dict,
     num_clips: int = 3,
     llm_fn: Optional[LLMFn] = None,
+    hotspots: Optional[List[Dict]] = None,
 ) -> Dict:
     """Main entry point — returns {highlights: [...]} sorted by score.
 
     `llm_fn` swaps the underlying LLM. Defaults to the LLM_PROVIDER backend.
+    `hotspots` are the comment hot zones from local.signals (absolute seconds).
     """
     llm_fn = llm_fn or _default_llm
     duration = transcript.get("duration", 0)
@@ -322,7 +439,7 @@ def get_highlights(
         for i, chunk in enumerate(chunks):
             print(f"[highlights] chunk {i + 1}/{len(chunks)} (offset {chunk['_offset']:.0f}s)", flush=True)
             try:
-                result = call_highlight_api(chunk, num_clips=num_clips, is_chunk=True, llm_fn=llm_fn)
+                result = call_highlight_api(chunk, num_clips=num_clips, is_chunk=True, llm_fn=llm_fn, hotspots=hotspots)
             except RuntimeError as e:
                 # One failing chunk must not sink the clips already found in the others.
                 print(f"[highlights] chunk {i + 1} skipped: {e}", flush=True)
@@ -331,9 +448,9 @@ def get_highlights(
             all_highlights.extend(result.get("highlights", []))
         if not all_highlights and errors:
             raise RuntimeError(errors[-1])
-        highlights = dedupe_highlights(all_highlights)
+        highlights = rerank_highlights(dedupe_highlights(all_highlights), transcript, hotspots, llm_fn)
     else:
-        result = call_highlight_api(transcript, num_clips=num_clips, llm_fn=llm_fn)
+        result = call_highlight_api(transcript, num_clips=num_clips, llm_fn=llm_fn, hotspots=hotspots)
         highlights = dedupe_highlights(result.get("highlights", []))
 
     return {"highlights": highlights}
