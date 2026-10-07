@@ -128,7 +128,7 @@ powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1
 | `ShortsFeed-Watch` | toutes les 2 h | cherche du neuf ; si oui, rend et publie immédiatement |
 | `ShortsFeed-Process` | 01h, 13h | complète la file de shorts jusqu'à `SHORTS_PER_DAY` |
 | `ShortsFeed-Publish` | 09h, 13h, 17h, 21h, 01h, 05h | publie les shorts validés (`PUBLISH_MAX_PER_RUN` par passage) |
-| `ShortsFeed-Stats` | 08h00 | met à jour la colonne **Stats** (vues, j'aime, commentaires, partages) |
+| `ShortsFeed-Stats` | 08h00 | met à jour la colonne **Stats** (vues, j'aime, commentaires, partages), puis note les moments choisis (`replay`) |
 
 Les horaires se changent en paramètres du script (`-WatchEveryHours`, `-ProcessAt`,
 `-PublishFrom`, `-PublishEveryHours`). Le PC doit être allumé avec ta session
@@ -146,6 +146,7 @@ Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 | `python feed.py publish --dry-run` | liste ce qui serait publié |
 | `python feed.py publish --limit 1` | publie les shorts validés |
 | `python feed.py stats` | met à jour les stats YouTube / TikTok dans Notion |
+| `python feed.py replay [--dry-run]` | note les moments choisis d'après la courbe « les plus revus » de la vidéo source |
 | `python feed.py drafts` | liste les brouillons TikTok qui attendent dans ton app |
 | `python feed.py clean --dry-run` | liste les vidéos et clips à supprimer (plus d'un jour) |
 
@@ -197,6 +198,13 @@ Côté TikTok, la vidéo est retrouvée parmi tes vidéos **publiques** grâce �
 Une plateforme en échec garde ses derniers chiffres. Permissions nécessaires, une fois :
 - YouTube : relance `python feed.py auth-youtube` (ajoute la lecture des statistiques) ;
 - TikTok : active le scope **`video.list`** sur l'app (developers.tiktok.com), puis relance `python feed.py auth-tiktok`.
+
+**Note du moment choisi** : YouTube publie la courbe « moments les plus revus » d'une vidéo
+environ 10 jours après sa sortie, trop tard pour choisir le moment, mais parfait pour le juger.
+Chaque matin, `replay` compare le passage de chaque short de plus de 10 jours à tous les passages
+de même durée de la vidéo source (hors intro) : *Centile revu* vaut 100 pour le passage le plus
+revu, 50 pour un choix au hasard ; *Pic revu* dit où était le vrai pic. Le résumé par semaine
+montre si les changements du prompt aident. Les sources Twitch n'ont pas de courbe.
 
 **Jamais de rafale sur YouTube** : deux shorts ne deviennent jamais publics à moins de
 `YOUTUBE_MIN_GAP_MINUTES` (3 h par défaut) d'intervalle, même si plusieurs partent dans

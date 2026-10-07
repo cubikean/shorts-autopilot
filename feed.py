@@ -12,6 +12,7 @@ Usage:
     python feed.py publish [--limit 1] [--platform youtube] [--dry-run]
     python feed.py drafts                 # list the TikTok drafts still waiting in your inbox
     python feed.py stats                  # refresh YouTube / TikTok numbers in the Notion Stats column
+    python feed.py replay [--dry-run]     # grade chosen moments against the source's most-replayed curve
     python feed.py clean [--days 1]       # reject stale shorts, delete old downloads and clips
 """
 import argparse
@@ -127,6 +128,9 @@ def main() -> int:
 
     sub.add_parser("stats", help="refresh the Stats column (YouTube and TikTok numbers) of posted shorts")
 
+    replay = sub.add_parser("replay", help="grade chosen moments against the source's most-replayed curve (runs with stats)")
+    replay.add_argument("--dry-run", action="store_true", help="print the grades without writing to Notion")
+
     pub = sub.add_parser("publish", help="upload the shorts marked Validé in Notion")
     pub.add_argument("--limit", type=int, default=PUBLISH_MAX_PER_RUN, help=f"shorts per run (default {PUBLISH_MAX_PER_RUN})")
     pub.add_argument("--platform", action="append", help="only this platform (repeatable; default PUBLISH_PLATFORMS)")
@@ -194,8 +198,20 @@ def main() -> int:
         elif args.command == "stats":
             from shorts_generator.publish.stats import update_stats
 
+            from shorts_generator.feed.replay import check_replays
+
             with single_run("stats"):
                 update_stats()
+                try:
+                    # Same daily slot: grading only touches shorts that just turned 10 days old.
+                    check_replays()
+                except Exception as e:
+                    print(f"[replay] skipped this run: {e}", flush=True)
+        elif args.command == "replay":
+            from shorts_generator.feed.replay import check_replays
+
+            with single_run("stats"):
+                check_replays(dry_run=args.dry_run)
         elif args.command == "discover":
             from shorts_generator.feed.runner import discover
 

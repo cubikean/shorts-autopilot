@@ -330,6 +330,66 @@ class Notion:
             "stats": _plain(p["Stats"]) if "Stats" in p else "",
         }
 
+    # --- replay check ---------------------------------------------------------------
+
+    def ensure_columns(self, database_id: str, wanted: Dict[str, Dict]) -> None:
+        props = self._request("GET", f"databases/{database_id}")["properties"]
+        patch = {name: spec for name, spec in wanted.items() if name not in props}
+        if patch:
+            self._request("PATCH", f"databases/{database_id}", {"properties": patch})
+
+    def shorts_to_rate(self, database_id: str, min_age_days: float) -> List[Dict]:
+        """Shorts old enough for their source's "most replayed" curve, and not rated yet."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=min_age_days)
+        rows, cursor = [], None
+        while True:
+            body = {"filter": {"and": [
+                {"timestamp": "created_time", "created_time": {"before": cutoff.isoformat()}},
+                {"property": "Pic revu", "rich_text": {"is_empty": True}},
+            ]}, "page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            result = self._request("POST", f"databases/{database_id}/query", body)
+            for page in result.get("results", []):
+                p = page["properties"]
+                sources = p["Vidéo source"]["relation"]
+                if not sources or p["Début (s)"]["number"] is None or p["Fin (s)"]["number"] is None:
+                    continue
+                rows.append({
+                    "page_id": page["id"],
+                    "title": _plain(p["Titre"]),
+                    "created": page["created_time"],
+                    "start": p["Début (s)"]["number"],
+                    "end": p["Fin (s)"]["number"],
+                    "video_page_id": sources[0]["id"],
+                })
+            if not result.get("has_more"):
+                return rows
+            cursor = result["next_cursor"]
+
+    def rated_shorts(self, database_id: str) -> List[Dict]:
+        """Every short with a replay percentile, for the running summary."""
+        rows, cursor = [], None
+        while True:
+            body = {"filter": {"property": "Centile revu", "number": {"is_not_empty": True}}, "page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            result = self._request("POST", f"databases/{database_id}/query", body)
+            rows += [{"created": page["created_time"], "percentile": page["properties"]["Centile revu"]["number"]}
+                     for page in result.get("results", [])]
+            if not result.get("has_more"):
+                return rows
+            cursor = result["next_cursor"]
+
+    def video_source(self, page_id: str) -> Dict:
+        p = self._request("GET", f"pages/{page_id}")["properties"]
+        return {"url": p["URL"]["url"], "platform": (p["Plateforme"]["select"] or {}).get("name")}
+
+    def set_replay(self, page_id: str, text: str, percentile: Optional[float] = None) -> None:
+        self._request("PATCH", f"pages/{page_id}", {"properties": {
+            "Pic revu": _text(text), "Centile revu": {"number": percentile},
+        }})
+
     def set_stats(self, page_id: str, text: str, links: Optional[Dict[str, str]] = None) -> None:
         props = {"Stats": _text(text)}
         props.update({column: {"url": url} for column, url in (links or {}).items()})
