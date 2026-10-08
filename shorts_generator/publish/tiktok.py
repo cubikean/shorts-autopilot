@@ -233,15 +233,10 @@ class TikTokPublisher(Publisher):
         raise RuntimeError(f"TikTok {path} failed [{resp.status_code} {code}]: {error.get('message')}")
 
     def _inbox_full_message(self, pending: List[Dict]) -> str:
-        """Nothing frees the cap but posting the drafts, so say exactly that."""
-        waiting = f"{len(pending)} suivi(s), le plus ancien depuis {_since(pending)}" if pending else "non suivis"
-        notify.send(
-            "TikTok bloqué : 5 brouillons en attente",
-            "Ouvre ta boîte de réception TikTok et publie les brouillons : les envois "
-            f"reprennent dès qu'une place est libre ({waiting}).",
-            open_url="https://www.tiktok.com/", open_label="Ouvrir TikTok",
-        )
-        return "TikTok: 5 drafts pending in the app — publish them to free a slot"
+        """Nothing frees the cap but posting the drafts, so say exactly that (in the log only:
+        a phone notification about a waiting queue every 15 min is noise)."""
+        waiting = f"{len(pending)} tracked, oldest sent {_since(pending)}" if pending else "untracked"
+        return f"TikTok: 5 drafts pending in the app ({waiting}) — publish them to free a slot"
 
     def pending_drafts(self) -> List[Dict]:
         """Drafts still waiting in the inbox: states are re-checked, posted and expired ones drop out."""

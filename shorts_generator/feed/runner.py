@@ -138,10 +138,13 @@ def watch() -> None:
     from ..publish.runner import publish
 
     def publish_and_notify(limit: int) -> None:
+        # Only what is public right now: TikTok drafts get their own "Brouillon prêt" notification,
+        # and a short merely queued for a later slot isn't news.
         for short in publish(limit=limit):
-            links = " · ".join(f"{name}: {url}" for name, url in short["links"].items())
-            notify.send(f"En ligne : {short['title']}"[:200], links or "publié",
-                        open_url=short["links"].get("youtube"), open_label="Voir sur YouTube")
+            if short["live"]:
+                links = " · ".join(f"{name}: {url}" for name, url in short["live"].items())
+                notify.send(f"En ligne : {short['title']}"[:200], links,
+                            open_url=short["live"].get("youtube"), open_label="Voir sur YouTube")
 
     fresh = discover()
     if fresh:

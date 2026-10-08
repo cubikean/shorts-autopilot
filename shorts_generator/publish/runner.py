@@ -189,7 +189,9 @@ def publish(limit: int = PUBLISH_MAX_PER_RUN, platforms: Optional[List[str]] = N
         handled += attempted
 
         if links:
-            published.append({"title": post.title, "links": links})
+            # TikTok drafts and scheduled YouTube releases aren't public yet.
+            live = {name: url for name, url in links.items() if getattr(clients[name], "went_live", False)}
+            published.append({"title": post.title, "links": links, "live": live})
             for name in links:
                 _record_published(name)
         if failure:

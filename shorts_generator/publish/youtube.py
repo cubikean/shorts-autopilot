@@ -229,6 +229,8 @@ class YouTubePublisher(Publisher):
                 raise RuntimeError(f"YouTube upload failed after {MAX_RETRIES} retries: {error}")
             time.sleep(min(60, 2 ** attempt) + random.random())
 
+        # Scheduled = still private, waiting for its slot: not worth an "En ligne" notification.
+        self.went_live = status["privacyStatus"] == "public"
         if release:
             _remember_release(release)
             if "publishAt" in status:
