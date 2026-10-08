@@ -34,8 +34,10 @@ function New-LogonCatchUpTrigger {
 
 function Register-FeedTask([string]$Name, [string]$Command, $Trigger, [string]$When) {
     $log = Join-Path $logDir "$Name.log"
-    $cmdArgs = "/c set PYTHONIOENCODING=utf-8&& `"$python`" feed.py $Command >> `"$log`" 2>&1"
-    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $cmdArgs -WorkingDirectory $repo
+    $cmdArgs = "cmd.exe /c set PYTHONIOENCODING=utf-8&& `"$python`" feed.py $Command >> `"$log`" 2>&1"
+    # conhost --headless gives the run an invisible console: no window pops up every 15 min,
+    # and python, ffmpeg and claude inherit it instead of opening their own.
+    $action = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless $cmdArgs" -WorkingDirectory $repo
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -ExecutionTimeLimit (New-TimeSpan -Hours 8)
     $triggers = @($Trigger, (New-LogonCatchUpTrigger))
     $register = @{ TaskName = $Name; Action = $action; Trigger = $triggers; Settings = $settings; Force = $true }
