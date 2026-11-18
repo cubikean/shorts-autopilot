@@ -30,7 +30,7 @@ ffmpeg/OpenCV crop, reframe and burned subtitles (`local/clipper.py`, `reframe.p
 
 ## Running things
 
-- Always use the venv: `venv\Scripts\python` (Python 3.10). On Windows set `PYTHONIOENCODING=utf-8`,
+- Always use the venv: `venv\Scripts\python` (Python 3.14). On Windows set `PYTHONIOENCODING=utf-8`,
   titles are full of emoji and the console is cp1252.
 - **Changing how moments are picked** (prompt, signals, model): measure it with `bench.py` before
   shipping. `bench.py build` caches older videos that already have YouTube's most-replayed curve;

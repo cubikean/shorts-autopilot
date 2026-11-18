@@ -11,3 +11,4 @@ youtube_token.json
 tiktok_token.json
 # Screenshots dropped in the repo folder
 /Capture d*.png
+venv-*/

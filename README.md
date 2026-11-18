@@ -36,7 +36,7 @@ automatiquement (les shorts pas encore publiés sont conservés).
 ## Installation (Windows)
 
 Prérequis :
-- Python 3.10+
+- Python 3.11+ (testé en 3.14 ; yt-dlp et les bibliothèques Google ne suivent plus la 3.10)
 - `ffmpeg` dans le PATH
 - [Claude Code](https://claude.com/claude-code) installé et connecté (`claude` une fois) — c'est lui qui choisit les moments et écrit les textes, sur ton abonnement Claude. OpenAI ou Gemini restent possibles via `LLM_PROVIDER`.
 - Optionnel : GPU NVIDIA pour une transcription beaucoup plus rapide (aucun torch requis)
