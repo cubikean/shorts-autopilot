@@ -66,9 +66,15 @@ Copie `sources.example.json` en `sources.json` et liste les chaînes :
 ```json
 {
   "youtube": [{"handle": "@Gotaga"}, {"channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx"}],
-  "twitch": [{"login": "zerator"}]
+  "twitch": [{"login": "zerator"}],
+  "twitch_categories": [{"name": "Grand Theft Auto VI", "language": "fr", "top": 10}]
 }
 ```
+
+`twitch_categories` suit en plus les `top` chaînes **en live** qui ont le plus de
+viewers dans une catégorie (sortie d'un jeu) : pas besoin de les lister une à une.
+Une chaîne vue en live reste suivie `FEED_MAX_AGE_HOURS` après la fin de son stream.
+À toi de vérifier que tu as le droit de clipper ces chaînes.
 
 Twitch est optionnel : crée une app sur <https://dev.twitch.tv/console/apps> et
 renseigne `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`, sinon Twitch est ignoré.
@@ -96,6 +102,12 @@ envoyés **en brouillon dans ta boîte TikTok** : dans l'**application mobile**
 **Boîte de réception → Notifications système → « Ton contenu est prêt »**, colle
 la **Légende TikTok** (colonne Notion) et publie. L'API ne peut pas
 écrire la légende elle-même. Maximum 5 brouillons en attente par 24 h.
+
+**Dossier TikTok (publication à la main sur tiktok.com)** : chaque short généré
+est aussi copié dans `TIKTOK_EXPORT_DIR` (par défaut `Vidéos\Shorts TikTok`)
+sous le nom `<date heure> - <titre>.mp4`, avec un `.txt` du même nom qui contient
+la légende (titre, description, hashtags sans #shorts). Sans limite de 5
+brouillons. `python feed.py export-tiktok` y copie les shorts déjà générés.
 
 **Légende directement sur ton téléphone** : installe l'app **ntfy** (Android /
 iOS, gratuite, sans compte) et abonne-toi au topic `NTFY_TOPIC` de ton `.env`.
@@ -156,6 +168,7 @@ Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 | `python feed.py stats` | met à jour les stats YouTube / TikTok dans Notion |
 | `python feed.py replay [--dry-run]` | note les moments choisis d'après la courbe « les plus revus » de la vidéo source |
 | `python feed.py drafts` | liste les brouillons TikTok qui attendent dans ton app |
+| `python feed.py export-tiktok [--days 1]` | copie les shorts déjà générés dans le dossier TikTok |
 | `python feed.py clean --dry-run` | liste les vidéos et clips à supprimer (plus d'un jour) |
 
 Pour tester un upload sans le rendre public :
@@ -231,7 +244,7 @@ dans Notion, et le créneau suivant revient au short le plus frais.
 
 **Découverte**
 - **YouTube** : flux RSS public des chaînes (sans clé ni quota). Score = vues/heure de la vidéo ÷ vues/heure médianes de la chaîne. Mise en file à partir de `FEED_MIN_SCORE` (1.5). Les vidéos déjà en format Short, en live ou hors `FEED_MIN/MAX_DURATION_MINUTES` sont ignorées.
-- **Twitch** : clips les plus vus des dernières `FEED_MAX_AGE_HOURS` (6 h), fusionnés en « moments ». Seule une fenêtre autour du moment est téléchargée (pas le VOD entier) et donne un short.
+- **Twitch** : clips les plus vus des dernières `FEED_MAX_AGE_HOURS` (6 h), fusionnés en « moments », y compris pendant le live (le clip pointe déjà dans le VOD en cours). Seule une fenêtre autour du moment est téléchargée (pas le VOD entier) et donne un short. VOD réservé aux abonnés (la plupart des grosses chaînes FR) : c'est le clip le plus vu du moment qui sert de source.
 
 **Génération**
 1. **Téléchargement** avec `yt-dlp` (mis en cache : `output\source_<id>.mp4`).
@@ -262,6 +275,7 @@ Tout est documenté dans `.env.example`. Les plus utiles :
 | `FEED_MIN_AGE_HOURS` / `FEED_MAX_AGE_HOURS` | `0` / `6` | fenêtre de fraîcheur des sources |
 | `SHORTS_STALE_DAYS` | `0.5` | au-delà, un short non publié passe en Rejeté (0 = jamais) |
 | `YOUTUBE_MAX_WAIT_MINUTES` | `30` | délai max avant la sortie publique pour uploader sur YouTube |
+| `TIKTOK_EXPORT_DIR` | `Vidéos\Shorts TikTok` | dossier des shorts à publier à la main sur TikTok (`off` = pas de copie) |
 | `MEDIA_RETENTION_DAYS` | `1` | âge à partir duquel les vidéos et clips sont supprimés |
 | `FEED_MAX_PER_RUN` / `FEED_CLIPS_PER_VIDEO` | `10` / `1` | plafond de vidéos par passage, shorts par vidéo |
 | `PUBLISH_MAX_PER_RUN` | `1` | shorts publiés par passage |

@@ -3,6 +3,8 @@
 Only list channels you are allowed to clip (clipping programs, your own
 channels, explicit permission): reuploading other creators' content without
 permission gets Content ID claims and "reused content" demonetisation.
+"twitch_categories" adds the biggest live channels of a category (a game launch)
+without listing them one by one, so that permission is yours to check.
 """
 import json
 import os
@@ -20,7 +22,11 @@ def load_sources(path: str) -> Dict[str, List[Dict]]:
         )
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
-    return {"youtube": data.get("youtube") or [], "twitch": data.get("twitch") or []}
+    return {
+        "youtube": data.get("youtube") or [],
+        "twitch": data.get("twitch") or [],
+        "twitch_categories": data.get("twitch_categories") or [],
+    }
 
 
 def resolve_youtube_channel_id(source: Dict) -> str:

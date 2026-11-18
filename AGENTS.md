@@ -57,7 +57,10 @@ ffmpeg/OpenCV crop, reframe and burned subtitles (`local/clipper.py`, `reframe.p
   fresh short (queues, batching, long schedules); old sources and unpublished shorts are rejected
   (`FEED_MAX_AGE_HOURS`, `SHORTS_STALE_DAYS`, `YOUTUBE_MAX_WAIT_MINUTES`).
 - **TikTok** posts go to the inbox as drafts (sandbox app, not Direct Post); TikTok refuses new
-  uploads while 5 drafts are pending (`feed.py drafts` lists them).
+  uploads while 5 drafts are pending (`feed.py drafts` lists them). Every render is also copied
+  with its caption to `TIKTOK_EXPORT_DIR`, which the user posts by hand on tiktok.com.
+- **Twitch VODs of big French channels are subscriber-only** for yt-dlp even though Helix says
+  `public`; discovery then uses the moment's top clip (always public) as the source.
 - Code, comments, logs and commits are in English. Everything the user reads in Notion, the README,
   notifications and generated titles/descriptions is in French.
 - Notion property and option names are French and matched by exact string (`Statut`, `À traiter`,

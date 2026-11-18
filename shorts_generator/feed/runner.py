@@ -35,7 +35,7 @@ def discover(dry_run: bool = False) -> List[Dict]:
     """Queue fresh viral videos in Notion. Returns the ones just added (all candidates on a dry run)."""
     sources = load_sources(FEED_SOURCES_FILE)
     now = datetime.now(timezone.utc)
-    candidates = discover_youtube(sources["youtube"], now) + discover_twitch(sources["twitch"], now)
+    candidates = discover_youtube(sources["youtube"], now) + discover_twitch(sources["twitch"], now, sources["twitch_categories"])
     candidates.sort(key=lambda c: -c["score"])
 
     print(f"\n{len(candidates)} candidate(s):")
