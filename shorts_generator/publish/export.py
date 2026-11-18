@@ -20,7 +20,7 @@ _YOUTUBE_ONLY_TAGS = {"#shorts"}
 
 def _safe_name(title: str) -> str:
     """Title usable as a Windows file name (emoji are fine on NTFS)."""
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", title).strip().rstrip(". ")
+    name = re.sub(r"\s+", " ", re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", title)).strip().rstrip(". ")
     return name[:80].rstrip(". ") or "short"
 
 
