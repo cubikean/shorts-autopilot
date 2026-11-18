@@ -65,7 +65,7 @@ def translate_for_subtitles(transcript: Dict, highlights: List[Dict], llm_fn: Ca
         if i in translated:
             # No word timestamps: subtitles.clip_words spreads the words over the span.
             segment = {**segment, **_span(segment), "text": translated[i], "words": None,
-                       "original": str(segment.get("text", "")).strip()}
+                       "original": str(segment.get("text", "")).strip(), "original_words": segment.get("words")}
         out.append(segment)
     print(f"[translate] {len(translated)}/{len(lines)} subtitle line(s) {source} → {target}", flush=True)
     return {**transcript, "segments": out}

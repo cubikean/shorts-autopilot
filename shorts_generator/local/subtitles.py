@@ -3,8 +3,8 @@
 Whisper word timestamps → an ASS file showing one uppercase word at a time,
 with a quick scale "pop" as each word lands, rendered by ffmpeg/libass.
 Lines in another language than SUBTITLE_LANGUAGE arrive already translated
-(local/translate.py), without word timestamps; their original text is shown
-whole, at half size, under the translated word.
+(local/translate.py), without word timestamps; their original words pop in
+the same way, at half size, under the translated word.
 """
 from typing import Dict, List, Optional
 
@@ -57,32 +57,54 @@ def _join_elisions(words: List[Dict]) -> List[Dict]:
 def clip_words(transcript: Dict, start: float, end: float) -> List[Dict]:
     """Words spoken inside [start, end], re-timed relative to the clip start.
 
-    Translated lines also yield their original text as one {"kind": "original"} item.
+    Translated lines also yield their original words, tagged {"kind": "original"},
+    on Whisper's real word timings when it gave them.
     """
     words: List[Dict] = []
     for segment in transcript.get("segments", []):
         if float(segment["end"]) <= start or float(segment["start"]) >= end:
             continue
         if segment.get("original"):
-            words.append({
-                "kind": "original",
-                "start": max(float(segment["start"]), start) - start,
-                "end": min(float(segment["end"]), end) - start,
-                "text": segment["original"],
-            })
-        for w in _join_elisions(segment.get("words") or _even_split(segment)):
-            w_start, w_end = float(w["start"]), float(w["end"])
-            if w_end <= start or w_start >= end:
-                continue
-            text = str(w.get("word", "")).strip().strip(STRIP_CHARS)
-            if not text:
-                continue
-            words.append({
-                "start": max(w_start, start) - start,
-                "end": min(w_end, end) - start,
-                "text": text.upper(),
-            })
+            original = segment.get("original_words") or _even_split({**segment, "text": segment["original"]})
+            words += _in_clip(original, start, end, kind="original")
+        words += _in_clip(segment.get("words") or _even_split(segment), start, end)
     return words
+
+
+def _in_clip(raw_words: List[Dict], start: float, end: float, kind: Optional[str] = None) -> List[Dict]:
+    out = []
+    for w in _join_elisions(raw_words):
+        w_start, w_end = float(w["start"]), float(w["end"])
+        if w_end <= start or w_start >= end:
+            continue
+        text = str(w.get("word", "")).strip().strip(STRIP_CHARS)
+        if not text:
+            continue
+        item = {"start": max(w_start, start) - start, "end": min(w_end, end) - start, "text": text.upper()}
+        if kind:
+            item["kind"] = kind
+        out.append(item)
+    return out
+
+
+def _word_events(words: List[Dict], style: str, x: int, y: int, base_size: int, width: int,
+                 duration: float) -> List[str]:
+    """One ASS event per word, popping in at its own position."""
+    events = []
+    for i, w in enumerate(words):
+        next_start = words[i + 1]["start"] if i + 1 < len(words) else duration
+        shown_end = min(max(w["end"], w["start"] + MIN_WORD_SECONDS) + MAX_HOLD_SECONDS, next_start)
+        shown_end = max(shown_end, w["start"] + 0.05)
+
+        # Shrink long words so they fit in 90% of the frame width (~0.75em per heavy uppercase glyph).
+        size = min(base_size, int(width * 0.9 / (len(w["text"]) * 0.75)))
+        text = w["text"].replace("\\", "").replace("{", "(").replace("}", ")")
+        tags = (
+            "{\\pos(" + f"{x},{y}" + ")\\fs" + str(size)
+            + "\\fscx75\\fscy75\\t(0,80,\\fscx112\\fscy112)\\t(80,150,\\fscx100\\fscy100)}"
+        )
+        events.append(f"Dialogue: 0,{_ass_time(w['start'])},{_ass_time(shown_end)},{style},,0,0,0,,{tags}{text}")
+    return events
 
 
 def write_ass(
@@ -117,7 +139,7 @@ def write_ass(
         f"Style: Word,{SUBTITLE_FONT},{base_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,"
         f"-1,-1,0,0,100,100,0,0,1,{outline},{shadow},5,0,0,0,1\n"
         f"Style: Original,{SUBTITLE_FONT},{base_size // 2},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,"
-        f"0,0,0,0,100,100,0,0,1,{max(1, outline // 2)},{max(1, shadow // 2)},8,0,0,0,1\n"
+        f"-1,-1,0,0,100,100,0,0,1,{max(1, outline // 2)},{max(1, shadow // 2)},5,0,0,0,1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
@@ -125,33 +147,9 @@ def write_ass(
 
     originals = [w for w in words if w.get("kind") == "original"]
     words = [w for w in words if w.get("kind") != "original"]
-    lines = []
-    margin = round(width * 0.08)
-    for i, line in enumerate(originals):
-        # Held until the next line, like a word, but not across a long silence.
-        next_start = originals[i + 1]["start"] if i + 1 < len(originals) else duration
-        shown_end = max(min(line["end"] + MAX_HOLD_SECONDS, next_start), line["start"] + 0.05)
-        text = line["text"].replace("\\", "").replace("{", "(").replace("}", ")")
-        # Top-anchored just under the big word, wrapping downwards when the line is long.
-        tags = "{\\an8\\q0\\pos(" + f"{x},{y + round(base_size * 0.6)}" + ")}"
-        lines.append(
-            f"Dialogue: 0,{_ass_time(line['start'])},{_ass_time(shown_end)},Original,,{margin},{margin},0,,{tags}{text}"
-        )
-    for i, w in enumerate(words):
-        next_start = words[i + 1]["start"] if i + 1 < len(words) else duration
-        shown_end = min(max(w["end"], w["start"] + MIN_WORD_SECONDS) + MAX_HOLD_SECONDS, next_start)
-        shown_end = max(shown_end, w["start"] + 0.05)
-
-        # Shrink long words so they fit in 90% of the frame width (~0.75em per heavy uppercase glyph).
-        size = min(base_size, int(width * 0.9 / (len(w["text"]) * 0.75)))
-        text = w["text"].replace("\\", "")
-        tags = (
-            "{\\pos(" + f"{x},{y}" + ")\\fs" + str(size)
-            + "\\fscx75\\fscy75\\t(0,80,\\fscx112\\fscy112)\\t(80,150,\\fscx100\\fscy100)}"
-        )
-        lines.append(
-            f"Dialogue: 0,{_ass_time(w['start'])},{_ass_time(shown_end)},Word,,0,0,0,,{tags}{text}"
-        )
+    # Original words: same pop, half size, on their own timing just under the translated word.
+    lines = _word_events(words, "Word", x, y, base_size, width, duration) + _word_events(
+        originals, "Original", x, y + round(base_size * 0.8), base_size // 2, width, duration)
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(lines) + "\n")
