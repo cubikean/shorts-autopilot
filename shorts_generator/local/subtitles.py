@@ -3,7 +3,8 @@
 Whisper word timestamps → an ASS file showing one uppercase word at a time,
 with a quick scale "pop" as each word lands, rendered by ffmpeg/libass.
 Lines in another language than SUBTITLE_LANGUAGE arrive already translated
-(local/translate.py), without word timestamps.
+(local/translate.py), without word timestamps; their original text is shown
+whole, at half size, under the translated word.
 """
 from typing import Dict, List, Optional
 
@@ -54,11 +55,21 @@ def _join_elisions(words: List[Dict]) -> List[Dict]:
 
 
 def clip_words(transcript: Dict, start: float, end: float) -> List[Dict]:
-    """Words spoken inside [start, end], re-timed relative to the clip start."""
+    """Words spoken inside [start, end], re-timed relative to the clip start.
+
+    Translated lines also yield their original text as one {"kind": "original"} item.
+    """
     words: List[Dict] = []
     for segment in transcript.get("segments", []):
         if float(segment["end"]) <= start or float(segment["start"]) >= end:
             continue
+        if segment.get("original"):
+            words.append({
+                "kind": "original",
+                "start": max(float(segment["start"]), start) - start,
+                "end": min(float(segment["end"]), end) - start,
+                "text": segment["original"],
+            })
         for w in _join_elisions(segment.get("words") or _even_split(segment)):
             w_start, w_end = float(w["start"]), float(w["end"])
             if w_end <= start or w_start >= end:
@@ -105,12 +116,27 @@ def write_ass(
         "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Word,{SUBTITLE_FONT},{base_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,"
         f"-1,-1,0,0,100,100,0,0,1,{outline},{shadow},5,0,0,0,1\n"
+        f"Style: Original,{SUBTITLE_FONT},{base_size // 2},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,"
+        f"0,0,0,0,100,100,0,0,1,{max(1, outline // 2)},{max(1, shadow // 2)},8,0,0,0,1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
 
+    originals = [w for w in words if w.get("kind") == "original"]
+    words = [w for w in words if w.get("kind") != "original"]
     lines = []
+    margin = round(width * 0.08)
+    for i, line in enumerate(originals):
+        # Held until the next line, like a word, but not across a long silence.
+        next_start = originals[i + 1]["start"] if i + 1 < len(originals) else duration
+        shown_end = max(min(line["end"] + MAX_HOLD_SECONDS, next_start), line["start"] + 0.05)
+        text = line["text"].replace("\\", "").replace("{", "(").replace("}", ")")
+        # Top-anchored just under the big word, wrapping downwards when the line is long.
+        tags = "{\\an8\\q0\\pos(" + f"{x},{y + round(base_size * 0.6)}" + ")}"
+        lines.append(
+            f"Dialogue: 0,{_ass_time(line['start'])},{_ass_time(shown_end)},Original,,{margin},{margin},0,,{tags}{text}"
+        )
     for i, w in enumerate(words):
         next_start = words[i + 1]["start"] if i + 1 < len(words) else duration
         shown_end = min(max(w["end"], w["start"] + MIN_WORD_SECONDS) + MAX_HOLD_SECONDS, next_start)

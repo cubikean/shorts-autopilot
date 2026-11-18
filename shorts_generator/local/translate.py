@@ -4,7 +4,8 @@ Whisper can only translate into English, so the LLM translates the lines of
 the clips that will be rendered (not the whole transcript: one small call per
 video). Each translated line keeps its Whisper timing, and its words are
 spread evenly over the span the original words covered: the captions follow
-the speech line by line, not word by word.
+the speech line by line, not word by word. The original line is kept
+("original") and shown in small under the translation.
 """
 import json
 from typing import Callable, Dict, List
@@ -63,7 +64,8 @@ def translate_for_subtitles(transcript: Dict, highlights: List[Dict], llm_fn: Ca
     for i, segment in enumerate(segments):
         if i in translated:
             # No word timestamps: subtitles.clip_words spreads the words over the span.
-            segment = {**segment, **_span(segment), "text": translated[i], "words": None}
+            segment = {**segment, **_span(segment), "text": translated[i], "words": None,
+                       "original": str(segment.get("text", "")).strip()}
         out.append(segment)
     print(f"[translate] {len(translated)}/{len(lines)} subtitle line(s) {source} → {target}", flush=True)
     return {**transcript, "segments": out}
