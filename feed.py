@@ -110,6 +110,7 @@ def main() -> int:
     disc.add_argument("--dry-run", action="store_true", help="print candidates without writing to Notion")
 
     sub.add_parser("watch", help="discover, and fast-track anything new straight to publication")
+    sub.add_parser("chatlog", help="record the live chat of the watched Twitch channels (runs until Ctrl+C)")
 
     proc = sub.add_parser("process", help="render shorts for the top queued videos")
     proc.add_argument("--limit", type=int, default=FEED_MAX_PER_RUN, help=f"videos per run (default {FEED_MAX_PER_RUN})")
@@ -240,6 +241,11 @@ def main() -> int:
             with single_run("process"), single_run("publish"):
                 watch()
                 purge_quietly()
+        elif args.command == "chatlog":
+            from shorts_generator.feed.chatlog import run as record_chat
+
+            with single_run("chatlog"):
+                record_chat()
         elif args.command == "process":
             from shorts_generator.feed.runner import process
             from shorts_generator.local.cleanup import purge_quietly

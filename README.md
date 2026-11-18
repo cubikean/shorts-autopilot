@@ -169,6 +169,7 @@ Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 | `python feed.py replay [--dry-run]` | note les moments choisis d'après la courbe « les plus revus » de la vidéo source |
 | `python feed.py drafts` | liste les brouillons TikTok qui attendent dans ton app |
 | `python feed.py export-tiktok [--days 1]` | copie les shorts déjà générés dans le dossier TikTok |
+| `python feed.py chatlog` | enregistre le chat des chaînes Twitch suivies (`output\chat`), pour régler un futur détecteur de pics ; tourne jusqu'à Ctrl+C |
 | `python feed.py clean --dry-run` | liste les vidéos et clips à supprimer (plus d'un jour) |
 
 Pour tester un upload sans le rendre public :
