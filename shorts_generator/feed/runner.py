@@ -21,7 +21,7 @@ from ..highlights import with_creator_tag
 from ..publish.export import export_quietly
 from .notion import STATUS_ERROR, STATUS_READY, STATUS_RUNNING, Notion
 from .sources import load_sources
-from .twitch import discover_twitch
+from .twitch import clip_game, discover_twitch
 from .youtube import discover_youtube
 
 
@@ -55,6 +55,23 @@ def discover(dry_run: bool = False) -> List[Dict]:
         added += 1
     print(f"\n[feed] {added} new video(s) queued in Notion, {len(candidates) - added} already known")
     return candidates
+
+
+def _layout_for(row: Dict) -> str:
+    """Framing asked by the Twitch category of this clip ("layout" in sources.json), else "auto".
+
+    Asked at render time rather than stored in Notion: the clip itself knows its game.
+    """
+    if row["platform"] != "Twitch":
+        return "auto"
+    try:
+        layouts = {str(c["name"]).lower(): c["layout"]
+                   for c in load_sources(FEED_SOURCES_FILE)["twitch_categories"] if c.get("layout")}
+        if layouts:
+            return layouts.get(str(clip_game(row["url"]) or "").lower(), "auto")
+    except Exception as e:
+        print(f"[feed] layout lookup failed, using auto: {e}", flush=True)
+    return "auto"
 
 
 def process(limit: int = FEED_MAX_PER_RUN, ignore_daily_target: bool = False) -> int:
@@ -94,6 +111,7 @@ def process(limit: int = FEED_MAX_PER_RUN, ignore_daily_target: bool = False) ->
             result = generate_shorts(
                 source,
                 num_clips=num_clips,
+                layout=_layout_for(row),
                 out_dir=os.path.join(LOCAL_OUTPUT_DIR, "shorts", safe_key),
             )
             rendered = [s for s in result["shorts"] if s.get("clip_url")]

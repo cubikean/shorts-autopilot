@@ -30,7 +30,7 @@ def generate_shorts(
             SUBTITLE_LANGUAGE when the video speaks another language.
         layout: "auto" stacks a detected stream webcam above the content,
             "stack" forces it for any steady face, "single" always uses a
-            face-tracked crop.
+            face-tracked crop, "blur" keeps the whole frame over a blurred copy.
         out_dir: where clips + metadata JSON go (default LOCAL_OUTPUT_DIR/<source id>/).
 
     Returns:

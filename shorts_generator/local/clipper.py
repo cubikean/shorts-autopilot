@@ -5,6 +5,8 @@ Two stages per highlight:
   2. Reframe the cut to the target aspect ratio. A stable crop path is planned
      over the whole clip first (YuNet faces, shot cuts, locked or dead-zone
      camera — see reframe.py), then frames are piped into a single x264 encode.
+     Layout "blur" skips the crop: the whole frame sits in the middle over a
+     zoomed, blurred copy of itself (gameplay where any crop loses the action).
 """
 import os
 import subprocess
@@ -191,6 +193,67 @@ def _reframe_vertical(
     return out_path
 
 
+BLUR_BACKGROUND_SIGMA = 30      # gaussian blur of the zoomed background, at quarter resolution
+BLUR_BACKGROUND_DIM = -0.08     # slightly darker, so the sharp frame stands out
+
+
+def _blur_frame(in_path: str, out_path: str, aspect_ratio: str, words: Optional[List[Dict]] = None) -> str:
+    """Whole frame centred at full width over a zoomed, blurred and dimmed copy of itself."""
+    target_ratio = _ratio(aspect_ratio)
+    out_w = 1080 if target_ratio < 1 else 1920
+    out_h = round(out_w / target_ratio)
+    out_h -= out_h % 2
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+         "-of", "csv=p=0", in_path], capture_output=True, text=True, check=True,
+    ).stdout.strip().split(",")
+    src_w, src_h = int(probe[0]), int(probe[1])
+    fg_h = min(out_h, round(out_w * src_h / src_w))
+    fg_h -= fg_h % 2
+    fg_w = min(out_w, round(fg_h * src_w / src_h))
+    fg_w -= fg_w % 2
+
+    graph = (
+        # Blur at quarter size: the same look as a full-size blur, many times faster.
+        f"[0:v]scale={out_w // 4}:{out_h // 4}:force_original_aspect_ratio=increase,crop={out_w // 4}:{out_h // 4},"
+        f"gblur=sigma={BLUR_BACKGROUND_SIGMA / 4:g},eq=brightness={BLUR_BACKGROUND_DIM},scale={out_w}:{out_h}[bg];"
+        f"[0:v]scale={fg_w}:{fg_h}[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
+    )
+    ass_path = None
+    if words:
+        ass_path = os.path.abspath(out_path + ".ass")
+        # Captions in the blurred band just under the frame, clear of the gameplay.
+        below = (out_h + fg_h) / 2 / out_h + 0.07
+        write_ass(words, out_w, out_h, _duration(in_path), ass_path, position=min(0.9, below))
+        graph += f",ass={os.path.basename(ass_path)}"
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", os.path.abspath(in_path),
+        "-filter_complex", graph + "[v]",
+        "-map", "[v]", "-map", "0:a:0?",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
+        os.path.abspath(out_path),
+    ]
+    try:
+        # Run from the .ass folder with a bare filename: Windows drive colons break filter graphs.
+        subprocess.run(cmd, check=True, cwd=os.path.dirname(ass_path) if ass_path else None)
+    finally:
+        if ass_path and os.path.exists(ass_path):
+            os.remove(ass_path)
+    print(f"[layout] blur: {fg_w}x{fg_h} frame over a blurred {out_w}x{out_h} background", flush=True)
+    return out_path
+
+
+def _duration(path: str) -> float:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return float(out or 0)
+
+
 def crop_clip_local(
     source_path: str,
     start_time: float,
@@ -208,7 +271,10 @@ def crop_clip_local(
     words = clip_words(transcript, start_time, end_time) if transcript else None
     try:
         _cut_subclip(source_path, start_time, end_time, cut_path)
-        _reframe_vertical(cut_path, out_path, aspect_ratio, words=words, layout=layout)
+        if layout == "blur":
+            _blur_frame(cut_path, out_path, aspect_ratio, words=words)
+        else:
+            _reframe_vertical(cut_path, out_path, aspect_ratio, words=words, layout=layout)
     finally:
         if os.path.exists(cut_path):
             os.remove(cut_path)

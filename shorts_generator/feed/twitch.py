@@ -100,8 +100,27 @@ def _moments(clips: List[Dict]) -> List[Dict]:
     return moments
 
 
+CLIP_URL_RE = re.compile(r"(?:twitch\.tv/[^/]+/clip/|clips\.twitch\.tv/)([\w-]+)")
+
+
+def clip_game(url: str) -> Optional[str]:
+    """Game name of a Twitch clip URL; None for anything else or when Twitch can't tell."""
+    match = CLIP_URL_RE.search(url or "")
+    if not match or not (TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET):
+        return None
+    token = _app_token()
+    clips = _helix("clips", token, {"id": match.group(1)})
+    if not clips or not clips[0].get("game_id"):
+        return None
+    games = _helix("games", token, {"id": clips[0]["game_id"]})
+    return games[0]["name"] if games else None
+
+
 def _category_candidates(token: str, category: Dict, now: datetime) -> List[Dict]:
-    """The most viewed clips of one category, {"name": ..., "top": 10, "language": "fr" (optional)}.
+    """The most viewed clips of one category, {"name": ..., "top": 10}.
+
+    Optional keys: "language" ("fr") keeps only streams in that language,
+    "layout" ("blur") is how their shorts are framed (see process).
 
     Clips of the same moment (several viewers clipping one action) are merged
     so it yields one short; clips without a VOD stand alone.

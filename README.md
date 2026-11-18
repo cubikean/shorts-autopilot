@@ -67,13 +67,16 @@ Copie `sources.example.json` en `sources.json` et liste les chaînes :
 {
   "youtube": [{"handle": "@Gotaga"}, {"channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx"}],
   "twitch": [{"login": "zerator"}],
-  "twitch_categories": [{"name": "Grand Theft Auto VI", "top": 10}]
+  "twitch_categories": [{"name": "Grand Theft Auto VI", "top": 10, "layout": "blur"}]
 }
 ```
 
 `twitch_categories` met en file les `top` clips les plus vus de la catégorie sur
 les dernières `FEED_MAX_AGE_HOURS`, quel que soit le streamer (ajoute
-`"language": "fr"` pour ne garder que les streams en français). À toi de vérifier
+`"language": "fr"` pour ne garder que les streams en français). `"layout": "blur"`
+garde l'image entière en 16:9 au centre, sur un fond de la même vidéo zoomée et
+floutée, sous-titres juste en dessous (sans recadrage qui couperait l'action du jeu).
+À toi de vérifier
 que tu as le droit de clipper ces chaînes.
 
 Twitch est optionnel : crée une app sur <https://dev.twitch.tv/console/apps> et
