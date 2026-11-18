@@ -67,14 +67,14 @@ Copie `sources.example.json` en `sources.json` et liste les chaînes :
 {
   "youtube": [{"handle": "@Gotaga"}, {"channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx"}],
   "twitch": [{"login": "zerator"}],
-  "twitch_categories": [{"name": "Grand Theft Auto VI", "language": "fr", "top": 10}]
+  "twitch_categories": [{"name": "Grand Theft Auto VI", "top": 10}]
 }
 ```
 
-`twitch_categories` suit en plus les `top` chaînes **en live** qui ont le plus de
-viewers dans une catégorie (sortie d'un jeu) : pas besoin de les lister une à une.
-Une chaîne vue en live reste suivie `FEED_MAX_AGE_HOURS` après la fin de son stream.
-À toi de vérifier que tu as le droit de clipper ces chaînes.
+`twitch_categories` met en file les `top` clips les plus vus de la catégorie sur
+les dernières `FEED_MAX_AGE_HOURS`, quel que soit le streamer (ajoute
+`"language": "fr"` pour ne garder que les streams en français). À toi de vérifier
+que tu as le droit de clipper ces chaînes.
 
 Twitch est optionnel : crée une app sur <https://dev.twitch.tv/console/apps> et
 renseigne `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`, sinon Twitch est ignoré.
@@ -169,7 +169,6 @@ Supprimer les tâches : `Unregister-ScheduledTask ShortsFeed-*`.
 | `python feed.py replay [--dry-run]` | note les moments choisis d'après la courbe « les plus revus » de la vidéo source |
 | `python feed.py drafts` | liste les brouillons TikTok qui attendent dans ton app |
 | `python feed.py export-tiktok [--days 1]` | copie les shorts déjà générés dans le dossier TikTok |
-| `python feed.py chatlog` | enregistre le chat des chaînes Twitch suivies (`output\chat`), pour régler un futur détecteur de pics ; tourne jusqu'à Ctrl+C |
 | `python feed.py clean --dry-run` | liste les vidéos et clips à supprimer (plus d'un jour) |
 
 Pour tester un upload sans le rendre public :
@@ -245,7 +244,7 @@ dans Notion, et le créneau suivant revient au short le plus frais.
 
 **Découverte**
 - **YouTube** : flux RSS public des chaînes (sans clé ni quota). Score = vues/heure de la vidéo ÷ vues/heure médianes de la chaîne. Mise en file à partir de `FEED_MIN_SCORE` (1.5). Les vidéos déjà en format Short, en live ou hors `FEED_MIN/MAX_DURATION_MINUTES` sont ignorées.
-- **Twitch** : clips les plus vus des dernières `FEED_MAX_AGE_HOURS` (6 h), fusionnés en « moments », y compris pendant le live (le clip pointe déjà dans le VOD en cours). Seule une fenêtre autour du moment est téléchargée (pas le VOD entier) et donne un short. VOD réservé aux abonnés (la plupart des grosses chaînes FR) : c'est le clip le plus vu du moment qui sert de source.
+- **Twitch** : clips les plus vus des dernières `FEED_MAX_AGE_HOURS` (6 h), fusionnés en « moments ». Seule une fenêtre autour du moment est téléchargée (pas le VOD entier) et donne un short. Catégories (`twitch_categories`) : clips les plus vus de la catégorie, tous streamers confondus ; le clip lui-même sert de source (toujours public, alors que les VOD des grosses chaînes FR sont réservés aux abonnés).
 
 **Génération**
 1. **Téléchargement** avec `yt-dlp` (mis en cache : `output\source_<id>.mp4`).

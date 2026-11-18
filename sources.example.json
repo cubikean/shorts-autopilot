@@ -8,6 +8,6 @@
     {"login": "twitch_login"}
   ],
   "twitch_categories": [
-    {"name": "Grand Theft Auto VI", "language": "fr", "top": 10}
+    {"name": "Grand Theft Auto VI", "top": 10}
   ]
 }

@@ -7,26 +7,21 @@ it gets downloaded later — no need to transcribe a 6-hour stream.
 Score = the moment's clip views divided by the median of that channel's
 moments today (1.0 when there is a single moment). Moments whose VOD is gone
 are skipped; the VOD's length doesn't matter since only a window is downloaded.
-When the VOD is subscriber-only (most big French channels), the moment's most
-viewed clip is used instead: clips stay public.
 
-Besides the whitelist, sources.json can target Twitch categories ("twitch_categories"):
-the biggest live channels in them right now are watched too. Clips made during a
-live already point into the VOD being recorded, so a moment can be cut while the
-stream is still running.
+Categories ("twitch_categories" in sources.json, e.g. a game launch) work the
+other way round: the category's most viewed clips, whoever the streamer. The
+clip itself is the source: it is always public, while the VODs of most big
+French channels need a subscription.
 """
-import json
 import re
 import statistics
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import requests
 
 from ..config import (
     FEED_MAX_AGE_HOURS,
-    LOCAL_OUTPUT_DIR,
     FEED_TWITCH_MIN_VIEWS,
     FEED_TWITCH_MOMENTS_PER_CHANNEL,
     TWITCH_CLIENT_ID,
@@ -36,9 +31,6 @@ from ..config import (
 HELIX = "https://api.twitch.tv/helix"
 MERGE_GAP_SECONDS = 60     # clips closer than this belong to the same moment
 WINDOW_PAD_SECONDS = 45    # context kept before/after the clipped moment
-# Channels found live in a targeted category, with when they were last seen there:
-# a stream that just ended keeps its fresh moments for FEED_MAX_AGE_HOURS.
-LIVE_SEEN_FILE = Path(LOCAL_OUTPUT_DIR) / "feed_twitch_live.json"
 
 
 def _app_token() -> str:
@@ -78,24 +70,6 @@ def _vod_minutes(token: str, vod_ids: List[str]) -> Dict[str, float]:
     return minutes
 
 
-def _vod_locked(vod_url: str, cache: Dict[str, bool]) -> bool:
-    """True when yt-dlp can't read the VOD without a subscriber login.
-
-    Helix still reports these VODs as "public", so only a real request tells.
-    Any other error counts as readable: the download step reports it properly.
-    """
-    if vod_url not in cache:
-        import yt_dlp  # type: ignore
-
-        try:
-            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
-                ydl.extract_info(vod_url, download=False, process=False)
-            cache[vod_url] = False
-        except Exception as e:
-            cache[vod_url] = "subscriber-only" in str(e)
-    return cache[vod_url]
-
-
 def _rfc3339(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -126,41 +100,47 @@ def _moments(clips: List[Dict]) -> List[Dict]:
     return moments
 
 
-def _top_live(token: str, categories: List[Dict], now: datetime) -> List[str]:
-    """Logins of the most-watched live channels in each targeted category.
+def _category_candidates(token: str, category: Dict, now: datetime) -> List[Dict]:
+    """The most viewed clips of one category, {"name": ..., "top": 10, "language": "fr" (optional)}.
 
-    Each category is {"name": "Grand Theft Auto VI", "language": "fr", "top": 10}.
-    Viewer count is what ranks them: the biggest audiences are the ones whose
-    moments get searched and reposted. Best effort: a failure targets nobody new.
+    Clips of the same moment (several viewers clipping one action) are merged
+    so it yields one short; clips without a VOD stand alone.
     """
-    try:
-        seen = json.loads(LIVE_SEEN_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        seen = {}
-    try:
-        names = [c["name"] for c in categories if c.get("name")]
-        games = {g["name"].lower(): g["id"] for g in _helix("games", token, [("name", n) for n in names])}
-        for category in categories:
-            game_id = games.get(str(category.get("name", "")).lower())
-            if not game_id:
-                print(f"[feed/twitch] category {category.get('name')!r} not found on Twitch", flush=True)
-                continue
-            params = [("game_id", game_id), ("first", str(min(100, int(category.get("top", 10)))))]
-            if category.get("language"):
-                params.append(("language", category["language"]))
-            streams = _helix("streams", token, params)  # Helix returns them by viewer count, biggest first
-            print(f"[feed/twitch] live in {category['name']}: "
-                  + ", ".join(f"{s['user_login']} ({s['viewer_count']})" for s in streams), flush=True)
-            for stream in streams:
-                seen[stream["user_login"].lower()] = _rfc3339(now)
-    except Exception as e:
-        print(f"[feed/twitch] category lookup failed: {e}", flush=True)
-    cutoff = now - timedelta(hours=FEED_MAX_AGE_HOURS)
-    seen = {login: when for login, when in seen.items()
-            if datetime.fromisoformat(when.replace("Z", "+00:00")) >= cutoff}
-    LIVE_SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LIVE_SEEN_FILE.write_text(json.dumps(seen, indent=1), encoding="utf-8")
-    return list(seen)
+    games = _helix("games", token, {"name": category["name"]})
+    if not games:
+        print(f"[feed/twitch] category {category['name']!r} not found on Twitch", flush=True)
+        return []
+    clips = _helix("clips", token, {
+        "game_id": games[0]["id"],
+        "started_at": _rfc3339(now - timedelta(hours=FEED_MAX_AGE_HOURS)),
+        "ended_at": _rfc3339(now),
+        "first": 100,
+    })
+    if category.get("language"):
+        clips = [c for c in clips if c.get("language") == category["language"]]
+    moments = _moments(clips) + [
+        {"clip_id": c["id"], "views": c["view_count"], "top_url": c["url"], "title": c["title"],
+         "created_at": c["created_at"], "channel": c["broadcaster_name"]}
+        for c in clips if not c.get("video_id") or c.get("vod_offset") is None
+    ]
+    moments = [m for m in moments if m["views"] >= FEED_TWITCH_MIN_VIEWS]
+    print(f"[feed/twitch] {category['name']}: {len(clips)} clips → {len(moments)} moments", flush=True)
+    if not moments:
+        return []
+    baseline = statistics.median(m["views"] for m in moments)
+    return [{
+        # Same key as a whitelisted channel's moment, so the two never queue it twice.
+        "key": f"tw:{m['vod_id']}:{int(m['start'] // 120)}" if "vod_id" in m else f"twclip:{m['clip_id']}",
+        "platform": "Twitch",
+        "title": m["title"],
+        "url": m["top_url"],
+        "channel": m["channel"],
+        "published": datetime.fromisoformat(m["created_at"].replace("Z", "+00:00")),
+        "views": int(m["views"]),
+        "score": round(m["views"] / baseline, 2),
+        "start": None,   # the whole clip is the source
+        "end": None,
+    } for m in sorted(moments, key=lambda m: -m["views"])[:int(category.get("top", 10))]]
 
 
 def discover_twitch(sources: List[Dict], now: Optional[datetime] = None,
@@ -171,13 +151,9 @@ def discover_twitch(sources: List[Dict], now: Optional[datetime] = None,
     now = now or datetime.now(timezone.utc)
     token = _app_token()
     logins = [str(s["login"]).lower() for s in sources if s.get("login")]
-    if categories:
-        logins += _top_live(token, categories, now)
-    logins = list(dict.fromkeys(logins))
     users = _helix("users", token, [("login", login) for login in logins[:100]])
 
     candidates: List[Dict] = []
-    locked: Dict[str, bool] = {}
     for user in users:
         clips = _helix("clips", token, {
             "broadcaster_id": user["id"],
@@ -199,23 +175,24 @@ def discover_twitch(sources: List[Dict], now: Optional[datetime] = None,
             continue
         baseline = statistics.median(m["views"] for m in moments)
         for m in sorted(moments, key=lambda m: -m["views"])[:FEED_TWITCH_MOMENTS_PER_CHANNEL]:
-            vod_url = f"https://www.twitch.tv/videos/{m['vod_id']}"
-            if _vod_locked(vod_url, locked):
-                url, start, end = m["top_url"], None, None   # the whole clip is the source
-            else:
-                url, start, end = vod_url, round(max(0.0, m["start"] - WINDOW_PAD_SECONDS)), round(m["end"] + WINDOW_PAD_SECONDS)
+            start = max(0.0, m["start"] - WINDOW_PAD_SECONDS)
             candidates.append({
                 # Bucket by 2 minutes so tomorrow's extra clips of the same moment don't re-queue it.
                 "key": f"tw:{m['vod_id']}:{int(m['start'] // 120)}",
                 "platform": "Twitch",
                 "title": m["title"],
-                "url": url,
+                "url": f"https://www.twitch.tv/videos/{m['vod_id']}",
                 "channel": m["channel"],
                 "published": datetime.fromisoformat(m["created_at"].replace("Z", "+00:00")),
                 "views": int(m["views"]),
                 "score": round(m["views"] / baseline, 2),
-                "start": start,
-                "end": end,
+                "start": round(start),
+                "end": round(m["end"] + WINDOW_PAD_SECONDS),
             })
         print(f"[feed/twitch] {user['login']}: {len(clips)} clips → {len(moments)} moments", flush=True)
+    for category in categories or []:
+        try:
+            candidates += _category_candidates(token, category, now)
+        except Exception as e:
+            print(f"[feed/twitch] category {category.get('name')!r} skipped: {e}", flush=True)
     return candidates

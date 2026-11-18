@@ -3,8 +3,6 @@
 Only list channels you are allowed to clip (clipping programs, your own
 channels, explicit permission): reuploading other creators' content without
 permission gets Content ID claims and "reused content" demonetisation.
-"twitch_categories" adds the biggest live channels of a category (a game launch)
-without listing them one by one, so that permission is yours to check.
 """
 import json
 import os
