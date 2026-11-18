@@ -18,6 +18,7 @@ from ..config import (
     SHORTS_PER_DAY,
 )
 from ..highlights import with_creator_tag
+from ..publish.export import export_quietly
 from .notion import STATUS_ERROR, STATUS_READY, STATUS_RUNNING, Notion
 from .sources import load_sources
 from .twitch import discover_twitch
@@ -114,11 +115,13 @@ def process(limit: int = FEED_MAX_PER_RUN, ignore_daily_target: bool = False) ->
                     meta = json.loads(meta_path.read_text(encoding="utf-8"))
                     meta.update(
                         description=description,
+                        hashtags=short["hashtags"],
                         source=row["url"],
                         start_time=short["start_time"],
                         end_time=short["end_time"],
                     )
                     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+                export_quietly(Path(short["clip_url"]), {**short, "description": description})
             notion.set_status(row["page_id"], STATUS_READY)
             print(f"[feed] ✔ {len(rendered)} short(s) ready", flush=True)
         except Exception as e:

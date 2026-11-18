@@ -103,6 +103,10 @@ TIKTOK_CLIENT_SECRET = _env("TIKTOK_CLIENT_SECRET", "")
 TIKTOK_TOKEN_FILE = _env("TIKTOK_TOKEN_FILE", "tiktok_token.json")
 TIKTOK_REDIRECT_PORT = int(_env("TIKTOK_REDIRECT_PORT", "8765"))  # redirect URI http://127.0.0.1:<port>/callback/
 TIKTOK_USERNAME = _env("TIKTOK_USERNAME", "").lstrip("@")
+# Every rendered short is also copied here with its caption, to post by hand on tiktok.com ("off" = no copy).
+TIKTOK_EXPORT_DIR = _env("TIKTOK_EXPORT_DIR", os.path.join(os.path.expanduser("~"), "Videos", "Shorts TikTok"))
+if TIKTOK_EXPORT_DIR.lower() == "off":
+    TIKTOK_EXPORT_DIR = ""
 
 # Phone notifications (ntfy): subscribe to this secret topic in the ntfy app.
 NTFY_TOPIC = _env("NTFY_TOPIC", "")

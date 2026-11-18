@@ -126,6 +126,9 @@ def main() -> int:
 
     sub.add_parser("drafts", help="list the TikTok drafts still waiting in your inbox")
 
+    export = sub.add_parser("export-tiktok", help="copy the shorts already rendered to the TikTok folder, with captions")
+    export.add_argument("--days", type=float, help="only shorts rendered in the last N days (default: all still on disk)")
+
     sub.add_parser("stats", help="refresh the Stats column (YouTube and TikTok numbers) of posted shorts")
 
     replay = sub.add_parser("replay", help="grade chosen moments against the source's most-replayed curve (runs with stats)")
@@ -195,6 +198,14 @@ def main() -> int:
                 print(f"  {day}  {'BLOQUE' if rank < 5 else 'expiré'}  {title}")
             print(f"{len(waiting)} draft(s) never posted; the 5 newest are what TikTok counts."
                   if waiting else "No TikTok draft waiting.")
+        elif args.command == "export-tiktok":
+            from shorts_generator.config import TIKTOK_EXPORT_DIR
+            from shorts_generator.publish.export import export_existing
+
+            if not TIKTOK_EXPORT_DIR:
+                raise RuntimeError("TIKTOK_EXPORT_DIR is off.")
+            done = export_existing(args.days)
+            print(f"{len(done)} short(s) copied to {TIKTOK_EXPORT_DIR}")
         elif args.command == "stats":
             from shorts_generator.publish.stats import update_stats
 
