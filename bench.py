@@ -8,6 +8,7 @@ prompt, signal or model change helps.
 Usage:
     python bench.py build [--per-channel 2] [--max-videos 40]   # once: transcripts, curves, signals
     python bench.py run full baseline [--holdout]              # grade variants, print the table
+    CLAUDE_MODEL=haiku python bench.py run full --tag haiku    # same variant on another model
     python bench.py report [--holdout]                          # table of every variant already run
 
 Variants: baseline (prompt before the comment/audio signals), bare (current prompt,
@@ -166,7 +167,7 @@ def _videos(holdout: bool) -> List[Path]:
     return sorted(p.parent for p in BENCH_DIR.glob("*/meta.json") if _is_holdout(p.parent.name) == holdout)
 
 
-def run(variants: List[str], holdout: bool) -> None:
+def run(variants: List[str], holdout: bool, tag: str = "") -> None:
     from shorts_generator.feed.replay import grade
     from shorts_generator.local.llm import call_local_llm
 
@@ -192,7 +193,8 @@ def run(variants: List[str], holdout: bool) -> None:
                 picks.append({"start": h["start_time"], "end": h["end_time"], "title": h.get("title"), "percentile": g["percentile"]})
             results[meta["id"]] = picks
             print(f"[bench]   centile(s): {', '.join(str(p['percentile']) for p in picks)}", flush=True)
-        (RESULTS_DIR / f"{variant}.{split}.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+        name = f"{variant}-{tag}" if tag else variant
+        (RESULTS_DIR / f"{name}.{split}.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
     report(holdout)
 
 
@@ -205,15 +207,15 @@ def report(holdout: bool) -> None:
     # Compare variants on the videos they all graded, or a failed call would skew one of them.
     common = set.intersection(*(set(r) for r in runs.values()))
     print(f"\n{split}: {len(common)} video(s) graded by every variant — centile: 100 = most replayed window, 50 = random\n")
-    print(f"{'variant':10} {'#1 median':>10} {'#1 mean':>8} {'#1 top 10 %':>12} {'#1 below 30':>12} {'all picks mean':>15}")
-    for variant in sorted(runs, key=lambda v: VARIANTS.index(v) if v in VARIANTS else 99):
+    print(f"{'variant':14} {'#1 median':>10} {'#1 mean':>8} {'#1 top 10 %':>12} {'#1 below 30':>12} {'all picks mean':>15}")
+    for variant in sorted(runs, key=lambda v: (VARIANTS.index(v.split("-")[0]) if v.split("-")[0] in VARIANTS else 99, v)):
         firsts = [runs[variant][vid][0]["percentile"] for vid in common if runs[variant][vid]]
         every = [p["percentile"] for vid in common for p in runs[variant][vid]]
         if not firsts:
             continue
         top = sum(1 for v in firsts if v >= 90)
         low = sum(1 for v in firsts if v < 30)
-        print(f"{variant:10} {median(firsts):10.1f} {mean(firsts):8.1f} {f'{top}/{len(firsts)}':>12} {f'{low}/{len(firsts)}':>12} {mean(every):15.1f}")
+        print(f"{variant:14} {median(firsts):10.1f} {mean(firsts):8.1f} {f'{top}/{len(firsts)}':>12} {f'{low}/{len(firsts)}':>12} {mean(every):15.1f}")
 
 
 def main() -> int:
@@ -225,13 +227,14 @@ def main() -> int:
     r = sub.add_parser("run", help="pick moments with each variant and grade them")
     r.add_argument("variants", nargs="+", choices=VARIANTS)
     r.add_argument("--holdout", action="store_true", help="use the held-out videos (only to confirm a chosen variant)")
+    r.add_argument("--tag", default="", help="suffix for the results file, e.g. the model when CLAUDE_MODEL is overridden")
     rep = sub.add_parser("report", help="table of the variants already run")
     rep.add_argument("--holdout", action="store_true")
     args = parser.parse_args()
     if args.command == "build":
         build(args.per_channel, args.max_videos)
     elif args.command == "run":
-        run(args.variants, args.holdout)
+        run(args.variants, args.holdout, args.tag)
     else:
         report(args.holdout)
     return 0
