@@ -1,8 +1,9 @@
 """Burned-in word-by-word captions for local clips (TikTok / Shorts style).
 
 Whisper word timestamps → an ASS file showing one uppercase word at a time,
-with a quick scale "pop" as each word lands. ffmpeg/libass renders it, so the
-captions stay in whatever language Whisper transcribed.
+with a quick scale "pop" as each word lands, rendered by ffmpeg/libass.
+Lines in another language than SUBTITLE_LANGUAGE arrive already translated
+(local/translate.py), without word timestamps.
 """
 from typing import Dict, List, Optional
 

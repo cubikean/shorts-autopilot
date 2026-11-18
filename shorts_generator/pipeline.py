@@ -26,7 +26,8 @@ def generate_shorts(
         aspect_ratio: e.g. "9:16", "1:1".
         download_format: source resolution ("360" / "480" / "720" / "1080").
         language: ISO-639-1 to force Whisper language detection.
-        subtitles: burn word-by-word captions, in the spoken language, into each clip.
+        subtitles: burn word-by-word captions into each clip, translated into
+            SUBTITLE_LANGUAGE when the video speaks another language.
         layout: "auto" stacks a detected stream webcam above the content,
             "stack" forces it for any steady face, "single" always uses a
             face-tracked crop.
@@ -45,6 +46,7 @@ def generate_shorts(
     from .local.llm import call_local_llm
     from .local.signals import annotate_audio, comment_hotspots
     from .local.transcriber import transcribe_local
+    from .local.translate import translate_for_subtitles
 
     source_path = download_youtube_local(youtube_url, fmt=download_format)
 
@@ -73,7 +75,7 @@ def generate_shorts(
         top,
         aspect_ratio=aspect_ratio,
         out_dir=out_dir,
-        transcript=transcript if subtitles else None,
+        transcript=translate_for_subtitles(transcript, top, call_local_llm) if subtitles else None,
         layout=layout,
     )
 

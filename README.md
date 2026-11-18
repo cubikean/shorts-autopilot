@@ -251,7 +251,7 @@ dans Notion, et le créneau suivant revient au short le plus frais.
 2. **Transcription** `faster-whisper` : langue détectée, puis `large-v3` pour l'anglais et `large-v3-turbo` pour le reste (`LOCAL_WHISPER_MODELS`). Mise en cache en `.srt`.
 3. **Choix des moments** par le LLM : grille de viralité (accroche, pic d'émotion, prise de position, révélation, conflit, punchline, chute d'histoire, astuce), clips de 20 à 180 s, sans chevauchement. Titre, description et hashtags calqués sur notre meilleur short (« 3, 3, 3 comme mon âge 💀 », une ligne à la 3ᵉ personne, 3 hashtags + #shorts), en français. Réponses mises en cache (`output\llm_cache`) : relancer la même vidéo ne coûte rien.
 4. **Cadrage vertical** : détection de visage YuNet, un sujet suivi par plan, caméra fixe quand il bouge peu, coupes franches entre les plans. Webcam de stream détectée → empilée au-dessus du contenu.
-5. **Sous-titres** mot par mot, en majuscules, avec effet « pop », dans la langue parlée.
+5. **Sous-titres** mot par mot, en majuscules, avec effet « pop ». Vidéo dans une autre langue : les phrases du clip sont traduites en français par le LLM (un petit appel de plus) et gardent le timing de Whisper, phrase par phrase.
 
 **Publication** : upload YouTube reprenable (retries automatiques). Quand le
 quota est épuisé, le passage s'arrête et les shorts restants attendent le suivant.
@@ -269,6 +269,7 @@ Tout est documenté dans `.env.example`. Les plus utiles :
 | `CLAUDE_MODEL` / `CLAUDE_EFFORT` / `CLAUDE_THINKING` | `sonnet` / `low` / `off` | coût vs qualité des appels Claude |
 | `LOCAL_WHISPER_DEVICE` | `auto` | `auto` (GPU si dispo), `cpu`, `cuda` |
 | `SUBTITLE_FONT` / `SUBTITLE_POSITION` | `Arial Black` / `0.70` | police et hauteur des sous-titres (0 = haut, 1 = bas) |
+| `SUBTITLE_LANGUAGE` | `fr` | langue des sous-titres, traduits si la vidéo parle une autre langue (`off` = langue parlée) |
 | `FEED_MIN_SCORE` | `1.5` | seuil de viralité YouTube (0 = toutes les nouvelles vidéos) |
 | `SHORTS_PER_DAY` | `6` | shorts publiés par jour ; `process` s'aligne dessus |
 | `SHORTS_AUTO_VALIDATE` | `true` | `false` pour repasser en validation manuelle dans Notion |

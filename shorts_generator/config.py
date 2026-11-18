@@ -53,6 +53,10 @@ LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
 # vertical centre as a fraction of the frame height (0 = top, 1 = bottom).
 SUBTITLE_FONT = os.getenv("SUBTITLE_FONT", "Arial Black")
 SUBTITLE_POSITION = float(os.getenv("SUBTITLE_POSITION", "0.70"))
+# Captions are translated into this language when the video speaks another one ("off" = spoken language).
+SUBTITLE_LANGUAGE = _env("SUBTITLE_LANGUAGE", "fr").lower()
+if SUBTITLE_LANGUAGE == "off":
+    SUBTITLE_LANGUAGE = ""
 
 # Daily feed (feed.py): whitelisted channels → Notion queue → local rendering.
 NOTION_TOKEN = _env("NOTION_TOKEN", "")
