@@ -6,7 +6,7 @@ Lines in another language than SUBTITLE_LANGUAGE arrive already translated
 (local/translate.py), without word timestamps; their original words pop in
 the same way, at half size, under the translated word.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ..config import SUBTITLE_FONT, SUBTITLE_POSITION
 
@@ -57,23 +57,52 @@ def _join_elisions(words: List[Dict]) -> List[Dict]:
 def clip_words(transcript: Dict, start: float, end: float) -> List[Dict]:
     """Words spoken inside [start, end], re-timed relative to the clip start.
 
-    Translated lines also yield their original words, tagged {"kind": "original"},
-    on Whisper's real word timings when it gave them.
+    Translated lines also yield their original words, tagged {"kind": "original"}.
     """
     words: List[Dict] = []
     for segment in transcript.get("segments", []):
         if float(segment["end"]) <= start or float(segment["start"]) >= end:
             continue
         if segment.get("original"):
-            original = segment.get("original_words") or _even_split({**segment, "text": segment["original"]})
-            words += _in_clip(original, start, end, kind="original")
-        words += _in_clip(segment.get("words") or _even_split(segment), start, end)
+            translated, original = _paired(segment)
+            words += _in_clip(translated, start, end) + _in_clip(original, start, end, kind="original")
+        else:
+            words += _in_clip(_join_elisions(segment.get("words") or _even_split(segment)), start, end)
     return words
+
+
+def _paired(segment: Dict) -> Tuple[List[Dict], List[Dict]]:
+    """Translated and original words of one line on the same slots, so both pop in together.
+
+    The line is cut into as many slots as the shorter of the two has words,
+    timed on Whisper's real timing of the original words; a slot shows two
+    words of the longer language when the counts differ.
+    """
+    original = _join_elisions(segment.get("original_words") or _even_split({**segment, "text": segment["original"]}))
+    translated = str(segment.get("text", "")).split()
+    slots = min(len(original), len(translated))
+    if not slots:
+        return [], []
+
+    def chunks(items: list) -> List[list]:
+        return [items[k * len(items) // slots:(k + 1) * len(items) // slots] for k in range(slots)]
+
+    fr, orig = [], []
+    for words_fr, words_orig in zip(chunks(translated), chunks(original)):
+        timing = {"start": words_orig[0]["start"], "end": words_orig[-1]["end"]}
+        fr.append({**timing, "word": _join_tokens(words_fr)})
+        orig.append({**timing, "word": _join_tokens(str(w["word"]) for w in words_orig)})
+    return fr, orig
+
+
+def _join_tokens(tokens) -> str:
+    """Words of one slot, without the punctuation that would sit between them."""
+    return " ".join(t for t in (str(t).strip().strip(STRIP_CHARS) for t in tokens) if t)
 
 
 def _in_clip(raw_words: List[Dict], start: float, end: float, kind: Optional[str] = None) -> List[Dict]:
     out = []
-    for w in _join_elisions(raw_words):
+    for w in raw_words:
         w_start, w_end = float(w["start"]), float(w["end"])
         if w_end <= start or w_start >= end:
             continue
