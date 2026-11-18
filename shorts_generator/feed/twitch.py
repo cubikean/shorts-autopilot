@@ -151,7 +151,8 @@ def discover_twitch(sources: List[Dict], now: Optional[datetime] = None,
     now = now or datetime.now(timezone.utc)
     token = _app_token()
     logins = [str(s["login"]).lower() for s in sources if s.get("login")]
-    users = _helix("users", token, [("login", login) for login in logins[:100]])
+    # Helix rejects a users lookup without any login (sources with only categories).
+    users = _helix("users", token, [("login", login) for login in logins[:100]]) if logins else []
 
     candidates: List[Dict] = []
     for user in users:
